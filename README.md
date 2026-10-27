@@ -193,6 +193,8 @@ What *is* clearly working is the diagnosis:
 
 `mixed_cameras` and `reflective` have no positives in this test set: the demo captures all come from one synthetic camera, and no shiny classifier has been trained. Those two columns are untested, not passing.
 
+A second caveat applies to all of them: these are measured against the **rules'** labels, not against human judgement. The thresholds in `configs/labeling.yaml` have not been calibrated against a real review yet, so a high precision here says the model reproduces the rules, not that the rules are right. [`reports/label_agreement.md`](reports/label_agreement.md) explains how to close that gap.
+
 Validation ranking accuracy across the five leave-one-scene-out folds: 0.84 (0.81–0.88). That it is well above the test figure is what a 23-capture test set looks like, not evidence of a leak — the split is by scene and the test scenes were never trained on.
 
 Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
