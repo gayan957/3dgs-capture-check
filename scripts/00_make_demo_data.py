@@ -226,6 +226,7 @@ def render(
 
 
 def orbit_poses(n: int, arc_deg: float, radius: float, height: float) -> list[np.ndarray]:
+    """Camera positions walking round the subject: the capture you want."""
     angles = np.deg2rad(np.linspace(0.0, arc_deg, n, endpoint=False))
     return [
         np.array([radius * np.sin(a), height, radius * np.cos(a)], dtype=np.float64)
@@ -233,12 +234,37 @@ def orbit_poses(n: int, arc_deg: float, radius: float, height: float) -> list[np
     ]
 
 
-def geometry_psnr(arc_deg: float, n_frames: int, radius: float) -> float:
+def pivot_poses(
+    n: int, arc_deg: float, radius: float, height: float
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Standing still and turning on the spot: the capture that cannot be solved.
+
+    The camera never moves, so there is no parallax anywhere in the sequence and
+    3DGS has nothing to recover depth from, however sharp every frame is. This
+    is the failure mode `no_walking` exists to catch, and without an example of
+    it in the set nothing can learn it.
+    """
+    position = np.array([0.0, height, radius], dtype=np.float64)
+    angles = np.deg2rad(np.linspace(0.0, arc_deg, n, endpoint=False))
+    targets = [
+        position + np.array([np.sin(a), -0.1, -np.cos(a)], dtype=np.float64) * 4.0
+        for a in angles
+    ]
+    return [position.copy() for _ in angles], targets
+
+
+def geometry_psnr(
+    arc_deg: float, n_frames: int, radius: float, motion: str = "orbit"
+) -> float:
     """A stand-in quality target: more coverage and more views reconstruct better.
 
     Deliberately simple, and *not* a 3DGS measurement. It exists so the ranking
-    stage has a defensible ordering to learn on a synthetic set.
+    stage has a defensible ordering to learn on a synthetic set. A capture that
+    only pivoted gets the floor: with no baseline there is nothing to
+    triangulate, so sweeping a wide arc from one spot buys nothing.
     """
+    if motion == "pivot":
+        return 17.0
     coverage = min(arc_deg, 360.0) / 360.0
     views = min(n_frames, 240) / 240.0
     baseline = min(radius, 4.0) / 4.0
@@ -264,6 +290,12 @@ SCENES: tuple[dict, ...] = (
     {"scene": "hallway", "arc": 180.0, "radius": 3.8, "height": 1.3, "format": "video"},
     {"scene": "bedroom", "arc": 120.0, "radius": 4.0, "height": 1.5, "format": "images"},
     {"scene": "garage", "arc": 90.0, "radius": 3.6, "height": 1.2, "format": "video"},
+    # Filmed by standing still and turning: no parallax anywhere, so the splat
+    # cannot be solved however sharp the frames are.
+    {
+        "scene": "lobby", "arc": 160.0, "radius": 4.0, "height": 1.5,
+        "format": "video", "motion": "pivot",
+    },
 )
 
 COMPANY_SCENE = {
@@ -295,9 +327,16 @@ def write_video(path: Path, frames: list[np.ndarray], fps: float = VIDEO_FPS) ->
 
 def render_capture(spec: dict, width: int, height: int, focal: float) -> list[np.ndarray]:
     faces = build_scene(seed=abs(hash(spec["scene"])) % 10_000)
-    centre = np.array([0.0, 0.6, 0.0])
-    poses = orbit_poses(frame_count(spec["arc"]), spec["arc"], spec["radius"], spec["height"])
-    return [render(faces, pose, centre, width, height, focal) for pose in poses]
+    n = frame_count(spec["arc"])
+    if spec.get("motion") == "pivot":
+        poses, targets = pivot_poses(n, spec["arc"], spec["radius"], spec["height"])
+    else:
+        poses = orbit_poses(n, spec["arc"], spec["radius"], spec["height"])
+        targets = [np.array([0.0, 0.6, 0.0])] * n
+    return [
+        render(faces, pose, target, width, height, focal)
+        for pose, target in zip(poses, targets, strict=True)
+    ]
 
 
 def main() -> None:
@@ -335,7 +374,9 @@ def main() -> None:
         if is_company:
             (folder / "source.txt").write_text("company\n", encoding="utf-8")
 
-        psnr = geometry_psnr(spec["arc"], len(frames), spec["radius"])
+        psnr = geometry_psnr(
+            spec["arc"], len(frames), spec["radius"], spec.get("motion", "orbit")
+        )
         targets.append(
             {
                 "capture_id": capture_id,
