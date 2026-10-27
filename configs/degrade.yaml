@@ -11,6 +11,11 @@ ops:
     medium: { sector_deg: 90 }
     heavy:  { sector_deg: 150 }
   rotation_only:
+    # Only produces a copy from a capture that really does contain a
+    # rotation-only stretch; on a capture that walks throughout it creates
+    # nothing rather than writing a false label. The three strengths all land at
+    # walked_ratio 0 once the defect exists, so they are not separable by that
+    # measurement -- they differ in how many frames are kept.
     light:  { keep_ratio: 0.6 }
     medium: { keep_ratio: 0.4 }
     heavy:  { keep_ratio: 0.25 }
@@ -31,6 +36,10 @@ ops:
     medium: { sigma: 14, jpeg_quality: 65 }
     heavy:  { sigma: 25, jpeg_quality: 50 }
   drop_gap:                      # image bundles only
+    # One gap of n photos is a small share of the neighbour pairs in a long
+    # capture, so its effect on overlap_low_ratio stays modest however large n
+    # is. Scale these up for big bundles, or run the op more than once, if you
+    # need low_overlap to be clearly separable.
     light:  { n: 2 }
     medium: { n: 5 }
     heavy:  { n: 10 }
