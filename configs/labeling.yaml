@@ -29,7 +29,7 @@ light:
 views:
   duplicate_cosine: 0.97            # above -> DUPLICATE
   min_unique_views: 25              # among the DINOv2 frames; below -> too_few_views
-  min_diversity: 0.10               # mean pairwise cosine distance
+  min_diversity: 0.10               # low diversity alone only asks for REVIEW, never a label               # mean pairwise cosine distance
 
 motion:
   walked_ratio_min: 0.5             # below -> no_walking
@@ -49,7 +49,9 @@ exif:
 coverage:
   azimuth_bins: 8
   elevation_bins: 3
-  max_empty_bins: 6                 # of 24 bins
+  min_azimuth_span_deg: 180         # below -> poor_coverage (how far round the camera got)
+  max_empty_bins: 6                 # of 24 bins; reported and used as evidence, not as the
+                                    # trigger: the bin count is sensitive to path drift
 
 shiny:
   prob: 0.6

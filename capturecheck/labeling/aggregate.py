@@ -174,6 +174,7 @@ def to_video_labels(
         "flow_speed_mean": _mean(flow),
         "diversity": div,
         "coverage_empty_bins": int(cov.empty_bins) if cov is not None else -1,
+        "azimuth_span_deg": float(cov.azimuth_span_deg) if cov is not None else float("nan"),
         "unique_views": n_unique,
         "duplicate_ratio": _ratio(dup_mask),
         "shiny_ratio": _ratio(shiny_mask),
@@ -228,23 +229,40 @@ def to_video_labels(
         )
 
     # --- poor coverage ----------------------------------------------------- #
-    if cov is not None and cov.reliable and cov.empty_bins > cfg.coverage.max_empty_bins:
+    # Judged on how far round the subject the camera got, not on how many bins
+    # are empty: the bin count depends on how the path drifted across elevation
+    # rows, which punishes the long captures it should reward. The empty bins
+    # still name *which* directions are missing.
+    if (
+        cov is not None
+        and cov.reliable
+        and cov.azimuth_span_deg < cfg.coverage.min_azimuth_span_deg
+    ):
         labels["poor_coverage"] = 1
-        evidence["poor_coverage"] = (
-            f"{cov.empty_bins} of {cov.grid.size} view bins empty: {summarize_empty(cov)}"
-        )
+        parts = [
+            f"the camera only got {cov.azimuth_span_deg:.0f}° round the subject "
+            f"(want at least {cfg.coverage.min_azimuth_span_deg:.0f}°)"
+        ]
+        missing = summarize_empty(cov)
+        if missing:
+            parts.append(f"never filmed from: {missing}")
+        evidence["poor_coverage"] = "; ".join(parts)
     elif cov is not None and not cov.reliable and labels["no_walking"]:
         # A pivot covers nothing, and the path estimate agrees it saw no motion.
         labels["poor_coverage"] = 1
         evidence["poor_coverage"] = "camera never moved, so only one side was captured"
 
     # --- too few views ----------------------------------------------------- #
-    too_few = n_unique < cfg.views.min_unique_views
-    flat = np.isfinite(div) and div < cfg.views.min_diversity
-    if too_few or flat:
+    # Counted views only. Low DINOv2 diversity is reported as supporting evidence
+    # and can send a capture to review, but it is not a label on its own: how
+    # varied a scene looks depends on the room as much as on the filming.
+    if n_unique < cfg.views.min_unique_views:
         labels["too_few_views"] = 1
-        parts = [f"{n_unique} genuinely different views"]
-        if flat:
+        parts = [
+            f"only {n_unique} genuinely different views "
+            f"(want at least {cfg.views.min_unique_views})"
+        ]
+        if np.isfinite(div) and div < cfg.views.min_diversity:
             parts.append(f"view diversity {div:.2f}")
         if stats["duplicate_ratio"] > 0:
             parts.append(f"{stats['duplicate_ratio'] * 100:.0f}% near-duplicates")

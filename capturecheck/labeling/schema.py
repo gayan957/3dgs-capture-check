@@ -142,6 +142,7 @@ VIDEO_STAT_COLUMNS: tuple[str, ...] = (
     "flow_speed_mean",
     "diversity",
     "coverage_empty_bins",
+    "azimuth_span_deg",
     "unique_views",
     "duplicate_ratio",
     "shiny_ratio",

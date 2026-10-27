@@ -484,7 +484,11 @@ def motion_pairs(
         return []
 
     k = approx_intrinsics(features[0].shape, focal_px)
-    step = max(1, int(gap)) if is_video else 1
+    # Videos start from the configured gap (~1 s apart); a bundle has no time
+    # step, so it starts from neighbouring photos. An explicit gap from the
+    # caller is always honoured, which is how the pipeline passes on the gap
+    # that `choose_pair_gap` settled on.
+    step = max(1, int(gap)) if (is_video or not adaptive) else 1
 
     if order is None and adaptive:
         step, _ = choose_pair_gap(

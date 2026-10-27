@@ -166,3 +166,15 @@ def test_choose_pair_gap_accepts_decisive_neighbours(trans_frames):
     gap, reason = motion.choose_pair_gap(features, base_gap=1, max_gap=8)
     assert gap == 1
     assert "already showed the camera moving" in reason
+
+
+def test_explicit_gap_is_honoured_for_photo_bundles(trans_frames):
+    """The pipeline computes the gap itself and passes it in with adaptive=False."""
+    pairs = motion.motion_pairs(trans_frames, gap=3, is_video=False, adaptive=False)
+    assert [(i, j) for i, j, _ in pairs] == [(0, 3), (3, 6), (6, 9)]
+
+
+def test_adaptive_bundles_start_from_neighbours(trans_frames):
+    pairs = motion.motion_pairs(trans_frames, gap=5, is_video=False, adaptive=True)
+    # The configured video gap is ignored; the search starts at neighbours.
+    assert (0, 1) in [(i, j) for i, j, _ in pairs]

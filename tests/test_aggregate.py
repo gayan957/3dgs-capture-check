@@ -122,10 +122,34 @@ def test_no_walking_when_pairs_only_turned():
     assert "rotation on the spot" in result.evidence["no_walking"]
 
 
+def test_poor_coverage_is_judged_on_how_far_round_the_camera_got():
+    """A full orbit passes even with empty bins; a quarter turn does not."""
+    wide = Coverage(
+        grid=np.ones((8, 3), dtype=np.int32), empty_bins=9, empty_bins_all=9,
+        empty_names=["back, high"], azimuth_span_deg=330.0, reliable=True,
+    )
+    narrow = Coverage(
+        grid=np.ones((8, 3), dtype=np.int32), empty_bins=0, empty_bins_all=0,
+        empty_names=[], azimuth_span_deg=80.0, reliable=True,
+    )
+    full = to_video_labels(
+        make_frames(), make_pairs(), wide,
+        info={"input_type": "video"}, diversity=0.4, unique_views=40,
+    )
+    assert full.labels["poor_coverage"] == 0
+
+    partial = to_video_labels(
+        make_frames(), make_pairs(), narrow,
+        info={"input_type": "video"}, diversity=0.4, unique_views=40,
+    )
+    assert partial.labels["poor_coverage"] == 1
+    assert "80° round the subject" in partial.evidence["poor_coverage"]
+
+
 def test_poor_coverage_needs_a_reliable_path():
     empty = Coverage(
         grid=np.zeros((8, 3), dtype=np.int32), empty_bins=24, empty_bins_all=24,
-        empty_names=["left, low"], reliable=False,
+        empty_names=["left, low"], azimuth_span_deg=0.0, reliable=False,
     )
     walked = to_video_labels(
         make_frames(), make_pairs(), empty,
@@ -170,6 +194,15 @@ def test_mixed_cameras_only_for_bundles():
         info={**info, "input_type": "video"}, diversity=0.4, unique_views=40,
     )
     assert video.labels["mixed_cameras"] == 0
+
+
+def test_low_diversity_alone_is_not_a_label():
+    """A scene that just looks repetitive is not a capture with too few views."""
+    result = to_video_labels(
+        make_frames(), make_pairs(), good_coverage(),
+        info={"input_type": "video"}, diversity=0.01, unique_views=40,
+    )
+    assert result.labels["too_few_views"] == 0
 
 
 def test_too_few_views_and_reflective_and_texture():
@@ -219,16 +252,32 @@ def test_needs_review_on_a_borderline_value():
 
 
 def test_needs_review_when_checks_disagree():
+    """Varied-looking views next to a camera path that barely moved."""
     cfg = get_config().labeling
     row = {
         "diversity": 0.6,
-        "coverage_empty_bins": cfg.coverage.max_empty_bins + 10,
+        "azimuth_span_deg": cfg.coverage.min_azimuth_span_deg / 4,
+        "unique_views": 60,
         "n_frames": 300,
         "overlap_mean": 0.5,
     }
     decision = needs_review(row, cfg)
     assert decision.needs_review
     assert "camera path may be wrong" in decision.reason
+
+
+def test_needs_review_when_many_views_all_look_alike():
+    cfg = get_config().labeling
+    row = {
+        "diversity": cfg.views.min_diversity / 2,
+        "unique_views": cfg.views.min_unique_views + 30,
+        "azimuth_span_deg": 300.0,
+        "n_frames": 300,
+        "overlap_mean": 0.5,
+    }
+    decision = needs_review(row, cfg)
+    assert decision.needs_review
+    assert "all look alike" in decision.reason
 
 
 def test_clean_row_needs_no_review():
@@ -243,6 +292,7 @@ def test_clean_row_needs_no_review():
         "noise_ratio": 0.0,
         "unique_views": 60,
         "coverage_empty_bins": 1,
+        "azimuth_span_deg": 320.0,
         "diversity": 0.4,
         "overlap_mean": 0.6,
         "flow_speed_mean": 3.0,

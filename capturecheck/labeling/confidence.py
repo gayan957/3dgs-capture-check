@@ -24,7 +24,7 @@ _BORDERLINE_CHECKS: tuple[tuple[str, str], ...] = (
     ("low_texture_ratio", "texture.video_ratio"),
     ("noise_ratio", "noise.video_ratio"),
     ("unique_views", "views.min_unique_views"),
-    ("coverage_empty_bins", "coverage.max_empty_bins"),
+    ("azimuth_span_deg", "coverage.min_azimuth_span_deg"),
 )
 
 
@@ -76,16 +76,28 @@ def needs_review(row, cfg: LabelingConfig | None = None) -> ReviewDecision:
 
     # --- checks that disagree with each other ------------------------------ #
     diversity = _value(row, "diversity")
-    empty_bins = _value(row, "coverage_empty_bins")
+    span = _value(row, "azimuth_span_deg")
     if (
         np.isfinite(diversity)
-        and np.isfinite(empty_bins)
+        and np.isfinite(span)
         and diversity > 0.35
-        and empty_bins > cfg.coverage.max_empty_bins
+        and span < cfg.coverage.min_azimuth_span_deg
     ):
         reasons.append(
-            f"views look varied (diversity {diversity:.2f}) but {int(empty_bins)} view bins are "
-            "empty: the camera path may be wrong"
+            f"views look varied (diversity {diversity:.2f}) but the camera path only spans "
+            f"{span:.0f}°: the camera path may be wrong"
+        )
+
+    unique_views = _value(row, "unique_views")
+    if (
+        np.isfinite(diversity)
+        and diversity < cfg.views.min_diversity
+        and np.isfinite(unique_views)
+        and unique_views >= cfg.views.min_unique_views
+    ):
+        reasons.append(
+            f"{int(unique_views)} views were counted but they all look alike "
+            f"(diversity {diversity:.2f}): check for a repetitive or empty scene"
         )
 
     walked = _value(row, "walked_ratio")
@@ -102,7 +114,7 @@ def needs_review(row, cfg: LabelingConfig | None = None) -> ReviewDecision:
             f"mean neighbour overlap is only {overlap_mean:.2f}: feature matching may have failed"
         )
 
-    if _value(row, "coverage_empty_bins") < 0:
+    if _value(row, "coverage_empty_bins") < 0 or not np.isfinite(_value(row, "azimuth_span_deg")):
         reasons.append("no camera path could be estimated")
 
     n_frames = _value(row, "n_frames")

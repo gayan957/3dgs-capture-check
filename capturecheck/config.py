@@ -141,6 +141,7 @@ class ExifCfg:
 class CoverageCfg:
     azimuth_bins: int = 8
     elevation_bins: int = 3
+    min_azimuth_span_deg: float = 180.0
     max_empty_bins: int = 6
 
     @property
