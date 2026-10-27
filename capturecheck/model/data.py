@@ -27,6 +27,9 @@ import pandas as pd
 from capturecheck.config import Config, get_config
 from capturecheck.features.dino import EMBED_DIM
 from capturecheck.labeling import schema
+from capturecheck.utils.logging import get_logger
+
+log = get_logger(__name__)
 
 #: Per-frame measurements that become part of a frame token.
 FRAME_FEATURES: tuple[str, ...] = (
@@ -257,11 +260,12 @@ def build_sample(
     n_pairs = len(pair_df)
     if n_pairs:
         pair_df = pair_df.reset_index(drop=True)
-        walked = (
-            (pair_df["kind"] == "walked").to_numpy(dtype=float)
-            if "kind" in pair_df.columns
-            else np.full(n_pairs, np.nan)
-        )
+        if "walked" in pair_df.columns:
+            walked = pd.to_numeric(pair_df["walked"], errors="coerce").to_numpy(dtype=float)
+        elif "kind" in pair_df.columns:
+            walked = (pair_df["kind"] == "walked").to_numpy(dtype=float)
+        else:
+            walked = np.full(n_pairs, np.nan)
         columns = []
         for name in PAIR_FEATURES:
             columns.append(walked if name == "walked" else _column(pair_df, name, n_pairs))
@@ -349,6 +353,7 @@ def samples_from_labels(
     frames_by_capture = dict(tuple(frame_df.groupby("capture_id"))) if not frame_df.empty else {}
 
     out: list[CaptureSample] = []
+    missing_pairs: list[str] = []
     for _, row in video_df.iterrows():
         capture_id = str(row["capture_id"])
         scene_id = str(row.get("scene_id") or capture_id)
@@ -362,6 +367,7 @@ def samples_from_labels(
         emb = np.zeros((0, EMBED_DIM), dtype=np.float32)
         emb_idx = np.zeros(0, dtype=int)
         grid = None
+        pair_df = pd.DataFrame()
         cache_path = features_dir / f"{capture_id}.npz"
         if cache_path.is_file():
             try:
@@ -371,21 +377,42 @@ def samples_from_labels(
                         emb_idx = data["frame_idx"] if "frame_idx" in data else np.arange(len(emb))
                     if "coverage_grid" in data:
                         grid = data["coverage_grid"]
+                    # The pair measurements are not in the CSVs, so they are read
+                    # from the cache the labelling step wrote. Without them the
+                    # model would train on inputs it never sees at scoring time.
+                    columns = {
+                        key[len("pair_") :]: np.asarray(data[key])
+                        for key in data.files
+                        if key.startswith("pair_")
+                    }
+                    if columns:
+                        pair_df = pd.DataFrame(columns)
             except (OSError, ValueError):
                 pass
+
+        if pair_df.empty:
+            missing_pairs.append(capture_id)
 
         out.append(
             build_sample(
                 capture_id=capture_id,
                 scene_id=scene_id,
                 frame_df=rows.sort_values("frame_idx"),
-                pair_df=pd.DataFrame(),  # pair measurements are not in the CSVs
+                pair_df=pair_df,
                 video_row=row.to_dict(),
                 emb=emb,
                 emb_idx=emb_idx,
                 coverage_grid=grid,
                 cfg=cfg,
             )
+        )
+
+    if missing_pairs:
+        log.warning(
+            "%d of %d captures have no cached pair measurements (%s...). "
+            "Re-run `capturecheck label data` so training and scoring see the "
+            "same inputs.",
+            len(missing_pairs), len(out), ", ".join(missing_pairs[:3]),
         )
     return out
 

@@ -86,3 +86,67 @@ def test_photo_pairs_have_no_flow_speed(tiny_bundle):
     capture = load_capture(tiny_bundle)
     measurements = measure_capture(capture, use_dino=False)
     assert measurements.pair_df["flow_speed"].isna().all()
+
+
+def test_cached_measurements_round_trip(tmp_path, tiny_bundle, monkeypatch):
+    """Training reads pairs and coverage from the cache, not from the CSVs.
+
+    Without this the model trains with no pair tokens and an empty coverage
+    grid, then is asked to score captures that have both.
+    """
+    from capturecheck.config import get_config
+    from capturecheck.labeling.pipeline import load_measurements
+
+    cfg = get_config()
+    monkeypatch.setattr(cfg.paths, "features", str(tmp_path.relative_to(tmp_path.anchor)))
+    monkeypatch.setattr(type(cfg.paths), "resolve", lambda self, key: tmp_path)
+
+    result = label_capture(
+        tiny_bundle, use_dino=False, cache_measurements=True, keep_measurements=True
+    )
+    pair_df, grid = load_measurements(result.capture_id)
+
+    assert not pair_df.empty
+    assert len(pair_df) == len(result.measurements.pair_df)
+    assert "walked" in pair_df.columns
+    assert set(pair_df["walked"].dropna().unique()) <= {0.0, 1.0}
+    assert grid is not None and grid.shape == (8, 3)
+
+
+def test_training_and_scoring_see_the_same_shapes(tmp_path, tiny_bundle, monkeypatch):
+    import pandas as pd
+
+    from capturecheck.config import get_config
+    from capturecheck.labeling.pipeline import load_measurements
+    from capturecheck.model.data import build_sample
+    from capturecheck.model.predict import sample_from_result
+
+    cfg = get_config()
+    monkeypatch.setattr(type(cfg.paths), "resolve", lambda self, key: tmp_path)
+
+    result = label_capture(
+        tiny_bundle, use_dino=False, cache_measurements=True, keep_measurements=True
+    )
+    live = sample_from_result(result)
+
+    # What the training path rebuilds from the CSVs plus the cache.
+    pair_df, grid = load_measurements(result.capture_id)
+    rebuilt = build_sample(
+        capture_id=result.capture_id,
+        scene_id=result.capture_id,
+        frame_df=result.frame_rows,
+        pair_df=pair_df,
+        video_row=result.video_row,
+        emb=result.measurements.emb,
+        emb_idx=result.measurements.emb_idx,
+        coverage_grid=grid,
+    )
+
+    assert rebuilt.pairs.shape == live.pairs.shape
+    assert rebuilt.frames.shape == live.frames.shape
+    assert rebuilt.global_vec.shape == live.global_vec.shape
+    # The coverage grid must carry the same information either way.
+    import numpy as np
+
+    assert np.allclose(rebuilt.global_vec[-24:], live.global_vec[-24:], equal_nan=True)
+    assert isinstance(pair_df, pd.DataFrame)

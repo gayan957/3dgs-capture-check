@@ -210,6 +210,7 @@ def label(
                 capture_id=ref.capture_id,
                 use_dino=not no_dino,
                 use_cache=not no_cache,
+                cache_measurements=True,
                 degrade_labels=ref.degrade_labels,
                 degrade_type=ref.degrade_type,
                 degrade_strength=ref.degrade_strength,

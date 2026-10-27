@@ -31,6 +31,8 @@ from capturecheck.features.dino import (
     DinoEmbedder,
     default_embedder,
     evenly_spaced,
+    load_cached,
+    save_cached,
 )
 from capturecheck.io.load import Capture, load_capture
 from capturecheck.labeling import classifiers
@@ -92,9 +94,17 @@ def measure_capture(
     embedder: DinoEmbedder | None = None,
     use_dino: bool = True,
     use_cache: bool = True,
+    cache_measurements: bool = False,
     timings: Timings | None = None,
 ) -> CaptureMeasurements:
-    """Run the OpenCV checks, the DINOv2 embedding and the coverage estimate."""
+    """Run the OpenCV checks, the DINOv2 embedding and the coverage estimate.
+
+    With ``cache_measurements`` the pair table and the coverage grid are stored
+    next to the DINOv2 features. The model needs them: without them a capture
+    read back from the label CSVs would have no pair tokens and no coverage
+    grid, while a capture measured live would have both, and the model would be
+    trained on different inputs from the ones it is asked to score.
+    """
     cfg = cfg or get_config()
     lab = cfg.labeling
     timings = timings or Timings()
@@ -238,6 +248,9 @@ def measure_capture(
     )
     frame_df = label_frames(frame_df, lab)
 
+    if cache_measurements:
+        save_measurements(capture.capture_id, pair_df, cov)
+
     return CaptureMeasurements(
         capture=capture,
         frame_df=frame_df,
@@ -250,6 +263,49 @@ def measure_capture(
         unique_views=n_unique,
         timings=timings,
     )
+
+
+#: Pair columns worth keeping: everything the model reads back as a pair token.
+CACHED_PAIR_COLUMNS: tuple[str, ...] = (
+    "i", "j", "walked", "confidence", "n_matches", "inliers_h", "inliers_e",
+    "homography_share", "brightness_delta", "flow_speed",
+)
+
+
+def save_measurements(capture_id: str, pair_df: pd.DataFrame, cov: Coverage | None) -> None:
+    """Store the pair table and the coverage grid in the capture's feature cache."""
+    payload: dict[str, np.ndarray] = {}
+    if not pair_df.empty:
+        table = pair_df.copy()
+        if "kind" in table.columns:
+            table["walked"] = np.where(
+                table["kind"] == "walked", 1.0, np.where(table["kind"] == "turned", 0.0, np.nan)
+            )
+        for column in CACHED_PAIR_COLUMNS:
+            if column in table.columns:
+                payload[f"pair_{column}"] = pd.to_numeric(
+                    table[column], errors="coerce"
+                ).to_numpy(dtype=np.float32)
+    if cov is not None:
+        payload["coverage_grid"] = cov.grid.astype(np.int32)
+        payload["coverage_reliable"] = np.array(int(cov.reliable), dtype=np.int32)
+    if payload:
+        save_cached(capture_id, payload)
+
+
+def load_measurements(capture_id: str) -> tuple[pd.DataFrame, np.ndarray | None]:
+    """Read back what :func:`save_measurements` stored: ``(pair_df, coverage_grid)``."""
+    cached = load_cached(capture_id)
+    if not cached:
+        return pd.DataFrame(), None
+    columns = {
+        key[len("pair_") :]: np.asarray(value)
+        for key, value in cached.items()
+        if key.startswith("pair_")
+    }
+    pair_df = pd.DataFrame(columns) if columns else pd.DataFrame()
+    grid = cached.get("coverage_grid")
+    return pair_df, grid
 
 
 def build_video_row(
@@ -320,6 +376,7 @@ def label_capture(
     embedder: DinoEmbedder | None = None,
     use_dino: bool = True,
     use_cache: bool = True,
+    cache_measurements: bool = False,
     degrade_labels: dict | None = None,
     degrade_type: str | None = None,
     degrade_strength: str | None = None,
@@ -334,7 +391,7 @@ def label_capture(
 
     measurements = measure_capture(
         capture, cfg=cfg, embedder=embedder, use_dino=use_dino,
-        use_cache=use_cache, timings=timings,
+        use_cache=use_cache, cache_measurements=cache_measurements, timings=timings,
     )
     video_row = build_video_row(
         measurements,

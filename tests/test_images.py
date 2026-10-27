@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from capturecheck.io import images as images_io
 from capturecheck.io.load import load_capture
 
@@ -98,3 +100,13 @@ def test_numbered_names_count_as_an_order(tmp_path, bundle_frames):
 def test_unordered_names_fall_back_to_similarity_pairing(no_exif_bundle):
     capture = load_capture(no_exif_bundle, width=320)
     assert capture.has_order is False
+
+
+def test_focal_length_in_pixels_comes_from_the_35mm_equivalent(tiny_bundle):
+    """26 mm equivalent on a 320-px-wide measurement is 26 * 320 / 36 px."""
+    capture = load_capture(tiny_bundle, width=320)
+    assert capture.focal_length_px == pytest.approx(26 * 320 / 36.0)
+
+
+def test_no_focal_length_without_exif(no_exif_bundle):
+    assert load_capture(no_exif_bundle, width=320).focal_length_px is None

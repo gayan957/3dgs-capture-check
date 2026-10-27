@@ -61,18 +61,18 @@ class Capture:
 
     @property
     def focal_length_px(self) -> float | None:
-        """Focal length in pixels at the measured resolution, from EXIF if known."""
-        h, w = self.shape
-        if not w:
-            return None
+        """Focal length in pixels at the measured resolution, from EXIF if known.
+
+        Only the 35 mm equivalent is usable: a bare focal length in millimetres
+        cannot be converted without the sensor size, which EXIF rarely carries.
+        Returning ``None`` lets the caller fall back to a guess from the image
+        width rather than to a confidently wrong number.
+        """
+        _, width = self.shape
         f35 = self.info.get("focal_length_35mm")
-        f_mm = self.info.get("focal_length_mm")
-        sensor_w_mm = 36.0  # 35 mm equivalent
-        if f35:
-            return float(f35) * w / sensor_w_mm
-        if f_mm and self.info.get("focal_length_is_35mm_equiv"):
-            return float(f_mm) * w / sensor_w_mm
-        return None
+        if not width or not f35:
+            return None
+        return float(f35) * width / 36.0  # the 35 mm frame is 36 mm wide
 
     def label_for(self, idx: int) -> str:
         """Human-readable name of one frame: a photo file name, or ``frame_012``."""
