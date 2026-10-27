@@ -79,7 +79,6 @@ def labels_dir(tmp_path, tiny_bundle, monkeypatch):
     )
 
     # The app finds captures on disk to build thumbnails.
-    import capturecheck.review.app as app_module  # noqa: F401
     from capturecheck.io.dataset import CaptureRef
 
     monkeypatch.setattr(

@@ -272,4 +272,9 @@ def main() -> None:
         st.rerun()
 
 
-main()
+# Streamlit executes this file as a script, so __name__ is "__main__" there.
+# Guarding it means merely importing the module -- which a test or a tool may do
+# -- does not run the page outside a Streamlit context, where a half-entered
+# form would corrupt Streamlit's global state for everything after it.
+if __name__ == "__main__":
+    main()
