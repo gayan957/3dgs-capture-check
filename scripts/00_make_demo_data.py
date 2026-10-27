@@ -359,7 +359,13 @@ def main() -> None:
 
     for spec in (*SCENES, COMPANY_SCENE):
         is_company = spec is COMPANY_SCENE
-        capture_id = "company_room_scan" if is_company else f"{spec['scene']}_orbit"
+        if is_company:
+            capture_id = "company_room_scan"
+        else:
+            # Name the capture after how it was filmed, not after a motion it
+            # does not have: a pivot capture called "..._orbit" misleads anyone
+            # reading the labels or the evaluation report.
+            capture_id = f"{spec['scene']}_{spec.get('motion', 'orbit')}"
         frames = render_capture(spec, args.width, args.height, focal)
 
         folder = args.out / capture_id
