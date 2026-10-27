@@ -23,9 +23,13 @@ ops:
     medium: { strength: 0.35 }
     heavy:  { strength: 0.6 }
   noise:
-    light:  { sigma: 6,  jpeg_quality: 60 }
-    medium: { sigma: 14, jpeg_quality: 35 }
-    heavy:  { sigma: 25, jpeg_quality: 18 }
+    # JPEG quality is kept moderate on purpose: compressing hard enough removes
+    # the very noise this op adds, and the measured noise then saturates, so
+    # "heavy" came out no noisier than "medium". These values keep the three
+    # strengths genuinely ordered.
+    light:  { sigma: 6,  jpeg_quality: 80 }
+    medium: { sigma: 14, jpeg_quality: 65 }
+    heavy:  { sigma: 25, jpeg_quality: 50 }
   drop_gap:                      # image bundles only
     light:  { n: 2 }
     medium: { n: 5 }

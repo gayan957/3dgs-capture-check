@@ -139,6 +139,13 @@ def make_variants_for_capture(
             if result.n < 3:
                 log.warning("%s produced only %d frames; skipping", vid, result.n)
                 continue
+            if not degrade_ops.defect_created(result.labels):
+                log.info(
+                    "%s: %s could not create its defect here (%s); skipping rather than "
+                    "writing a copy with a label that is not true of it",
+                    vid, op, result.labels.get("reason", "no reason given"),
+                )
+                continue
 
             images_dir = target / "images"
             save_frames(

@@ -18,6 +18,10 @@ import numpy as np
 
 from capturecheck.checks.coverage import CameraPath
 
+#: Share of the kept pairs that must read "turned" before ``rotation_only`` may
+#: claim the capture shows no walking.
+TURNED_SHARE_FOR_NO_WALKING = 0.5
+
 
 @dataclass
 class DegradeResult:
@@ -160,41 +164,73 @@ def rotation_only(
 ) -> DegradeResult:
     """Keep only the stretch where the camera turned instead of walking.
 
-    With pair decisions available, the densest run of "turned" pairs is kept.
-    Otherwise a short contiguous stretch is kept, which has the same effect: too
-    little baseline for 3DGS to recover depth.
+    This op can only *select*; it cannot manufacture a pivot. A capture that
+    walks the whole way round has no rotation-only stretch to keep, and keeping
+    a short contiguous window of it still shows the camera walking. In that case
+    the result carries ``no_walking: 0`` and ``reason``, and the caller should
+    discard it rather than write a copy whose headline label is false: a wrong
+    label teaches the model the opposite of the truth, which is worse than one
+    fewer training example.
     """
-    from capturecheck.checks.motion import TURNED
+    from capturecheck.checks.motion import TURNED, WALKED
 
     rng = rng or np.random.default_rng(0)
     names, times = _names_times(frames, names, times)
     n = len(frames)
     if n == 0:
-        return DegradeResult([], [], [], {"no_walking": 0})
+        return DegradeResult([], [], [], {"no_walking": 0, "reason": "no frames"})
 
     window = max(2, int(round(np.clip(keep_ratio, 0.05, 1.0) * n)))
 
     best_start = None
+    turned_share = float("nan")
     if pairs:
         turned = np.zeros(n, dtype=float)
+        decided = np.zeros(n, dtype=float)
         for i, j, result in pairs:
-            weight = 1.0 if getattr(result, "kind", None) == TURNED else 0.0
+            kind = getattr(result, "kind", None)
+            if kind not in (TURNED, WALKED):
+                continue
             for idx in (i, j):
                 if 0 <= idx < n:
-                    turned[idx] += weight
-        if turned.sum() > 0:
+                    decided[idx] += 1.0
+                    turned[idx] += 1.0 if kind == TURNED else 0.0
+        if decided.sum() > 0:
             sums = np.convolve(turned, np.ones(window), mode="valid")
             best_start = int(np.argmax(sums))
+            kept_slice = slice(best_start, best_start + window)
+            kept_decided = decided[kept_slice].sum()
+            turned_share = (
+                float(turned[kept_slice].sum() / kept_decided) if kept_decided else float("nan")
+            )
 
     if best_start is None:
         best_start = int(rng.integers(0, max(1, n - window + 1)))
 
     kept = list(range(best_start, min(n, best_start + window)))
+    labels: dict = {"kept": [kept[0], kept[-1]], "n_kept": len(kept)}
+
+    if np.isfinite(turned_share) and turned_share >= TURNED_SHARE_FOR_NO_WALKING:
+        labels["no_walking"] = 1
+        labels["turned_share"] = round(turned_share, 3)
+    elif np.isfinite(turned_share):
+        labels["no_walking"] = 0
+        labels["turned_share"] = round(turned_share, 3)
+        labels["reason"] = (
+            f"only {turned_share:.0%} of the kept pairs turned: this capture has no "
+            "rotation-only stretch to cut down to"
+        )
+    else:
+        # No pair decisions to go on: a shortened capture does have less
+        # baseline, but calling that "no walking" would be a guess.
+        labels["no_walking"] = 0
+        labels["reason"] = "no walked-or-turned decisions were available"
+
     return DegradeResult(
         [frames[i].copy() for i in kept],
         [names[i] for i in kept],
         [times[i] for i in kept],
-        {"no_walking": 1, "kept": [kept[0], kept[-1]], "n_kept": len(kept)},
+        labels,
     )
 
 
@@ -302,6 +338,19 @@ def drop_gap(
             "gap_after": names[removed[0] - 1] if removed[0] > 0 else names[0],
         },
     )
+
+
+def defect_created(labels: dict) -> bool:
+    """Did the op actually produce the problem it exists to produce?
+
+    Every op sets exactly one capture label. When that label comes back 0 the op
+    could not create the defect on this capture, and the copy should be thrown
+    away rather than written with a label that is not true of it.
+    """
+    from capturecheck.labeling import schema
+
+    present = [k for k in labels if k in schema.VIDEO_LABEL_NAMES]
+    return bool(present) and any(int(labels[k]) == 1 for k in present)
 
 
 #: Name -> function, so ``make_variants`` and the tests can look ops up by name.

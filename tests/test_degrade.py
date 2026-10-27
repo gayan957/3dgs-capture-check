@@ -45,10 +45,13 @@ def test_subsample_returns_the_right_count(trans_frames):
 
 def test_rotation_only_keeps_a_contiguous_stretch(trans_frames):
     result = ops.rotation_only(trans_frames, keep_ratio=0.4)
-    assert result.labels["no_walking"] == 1
     assert result.n == max(2, round(0.4 * len(trans_frames)))
     start, end = result.labels["kept"]
     assert end - start + 1 == result.n
+    # Without walked-or-turned decisions it cannot claim the capture stopped
+    # walking, so it says so rather than guessing.
+    assert result.labels["no_walking"] == 0
+    assert "no walked-or-turned decisions" in result.labels["reason"]
 
 
 def test_exposure_jitter_changes_brightness_frame_by_frame(trans_frames):
@@ -158,3 +161,66 @@ def test_make_all_skips_company_captures(tmp_path, tiny_bundle):
 
     variants = make_all(raw_dir=raw, out_dir=tmp_path / "degraded", strengths=["light"])
     assert variants == []
+
+
+def test_noise_strengths_are_ordered(trans_frames):
+    """Heavy must measure noisier than medium: JPEG used to erase the difference."""
+    from capturecheck.config import get_config
+
+    cfg = get_config()
+    measured = []
+    for strength in ("light", "medium", "heavy"):
+        params = cfg.degrade.params("noise", strength)
+        result = ops.noise(trans_frames, rng=np.random.default_rng(0), **params)
+        measured.append(float(np.mean([quality.noise_level(f) for f in result.frames])))
+    assert measured[0] < measured[1] < measured[2], measured
+
+
+def test_rotation_only_refuses_to_mislabel_a_walking_capture(trans_frames):
+    """It can select a stretch, not manufacture a pivot."""
+    from capturecheck.checks import motion
+
+    pairs = motion.motion_pairs(trans_frames, gap=1, adaptive=False)
+    assert motion.walked_ratio(pairs) > 0.75  # every pair walks
+
+    result = ops.rotation_only(trans_frames, keep_ratio=0.4, pairs=pairs)
+    assert result.labels["no_walking"] == 0
+    assert "no rotation-only stretch" in result.labels["reason"]
+    assert not ops.defect_created(result.labels)
+
+
+def test_rotation_only_labels_a_real_pivot(rot_frames):
+    from capturecheck.checks import motion
+
+    pairs = motion.motion_pairs(rot_frames, gap=1, adaptive=False)
+    assert motion.walked_ratio(pairs) < 0.25  # every pair turns
+
+    result = ops.rotation_only(rot_frames, keep_ratio=0.5, pairs=pairs)
+    assert result.labels["no_walking"] == 1
+    assert result.labels["turned_share"] >= 0.5
+    assert ops.defect_created(result.labels)
+
+
+def test_defect_created():
+    assert ops.defect_created({"motion_blur": 1, "frames": [1, 2]})
+    assert not ops.defect_created({"no_walking": 0, "reason": "nothing to cut"})
+    assert not ops.defect_created({"kept": [0, 5]})  # no capture label at all
+
+
+def test_make_all_skips_variants_whose_defect_failed(tmp_path, tiny_bundle, caplog):
+    """A copy with a false headline label is worse than one fewer example."""
+    import logging
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "kitchen_photos").symlink_to(tiny_bundle)
+
+    with caplog.at_level(logging.INFO):
+        variants = make_all(
+            raw_dir=raw, out_dir=tmp_path / "degraded",
+            ops=["rotation_only"], strengths=["medium"],
+        )
+    for variant in variants:
+        assert variant.labels.get("no_walking") == 1
+    if not variants:
+        assert "could not create its defect" in caplog.text
