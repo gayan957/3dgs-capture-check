@@ -96,6 +96,13 @@ pip install -e ".[dev]"
 
 The first run downloads the DINOv2 weights (~84 MB) from torch.hub; after that it works offline.
 
+| Install | Gives you |
+|---|---|
+| `pip install -e .` | Checking and labelling captures, including the DINOv2 features |
+| `pip install -e ".[model]"` | …plus training, the baselines and the ONNX export |
+| `pip install -e ".[review]"` | …plus the human review screen |
+| `pip install -e ".[dev]"` | Everything, plus pytest and ruff |
+
 ## Quick start
 ```bash
 capturecheck check path/to/video.mp4          # a video
