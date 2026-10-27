@@ -213,7 +213,9 @@ def _gric(
     return float(rho.sum() + lambda_1 * dim_manifold * n + lambda_2 * n_params)
 
 
-def _model_score(errors_sq: np.ndarray, inlier_cutoff: float, score_cap: float) -> tuple[float, int]:
+def _model_score(
+    errors_sq: np.ndarray, inlier_cutoff: float, score_cap: float
+) -> tuple[float, int]:
     """How well a model explains the matches, and how many it explains.
 
     Each correspondence inside ``inlier_cutoff`` contributes ``score_cap`` minus

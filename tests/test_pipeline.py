@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import json
 
+from capturecheck.io.load import load_capture
 from capturecheck.labeling import schema
 from capturecheck.labeling.pipeline import label_capture, measure_capture
-from capturecheck.io.load import load_capture
 
 
 def test_label_capture_on_a_video(tiny_video):
