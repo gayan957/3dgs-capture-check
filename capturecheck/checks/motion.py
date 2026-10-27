@@ -32,8 +32,23 @@ RATIO_TEST = 0.75
 RANSAC_PX = 3.0
 #: Width the optical flow runs at (Farneback is quadratic in pixels).
 FLOW_WIDTH = 320
-#: Scales the GRIC gap per correspondence into a 0-1 confidence.
-GRIC_CONF_SCALE = 0.5
+#: Chi-squared 95% cutoffs: 2 degrees of freedom for a homography transfer error,
+#: 1 for a Sampson distance. Both models are *scored* on the homography scale so
+#: the two scores are comparable.
+CHI2_H = 5.991
+CHI2_E = 3.841
+#: Share of the total model score above which the homography is taken to be
+#: enough, i.e. the camera turned rather than walked. 0.45 is the value used by
+#: ORB-SLAM's initialiser for the same decision. The share cannot exceed 0.5,
+#: because an essential matrix explains everything a homography does and more.
+HOMOGRAPHY_SHARE = 0.45
+#: Distances from that share at which the decision is fully confident.
+TURNED_BAND = 0.05
+WALKED_BAND = 0.15
+#: A pair is only decided when one model explains this share of the matches.
+#: Below it the matching itself failed (repetitive texture, motion blur, a
+#: scene change), and an honest "unknown" beats a coin toss.
+MIN_EXPLAINED_SHARE = 0.25
 
 
 @dataclass
@@ -58,6 +73,9 @@ class PairMotion:
     n_matches: int = 0
     inliers_h: int = 0
     inliers_e: int = 0
+    score_h: float = float("nan")
+    score_e: float = float("nan")
+    homography_share: float = float("nan")
     gric_h: float = float("nan")
     gric_e: float = float("nan")
     R: np.ndarray | None = None  # rotation, frame i -> frame i+1
@@ -178,6 +196,11 @@ def _gric(
 
     ``errors_sq`` are squared residuals, ``dim_manifold`` is 2 for a homography and
     3 for an essential matrix, ``n_params`` is 8 and 5 respectively.
+
+    Reported as a diagnostic only. It is computed over the inliers of either
+    model, because GRIC's robust clamp charges an outlier more under a homography
+    than under an essential matrix, so leaving gross mismatches in would quietly
+    bias the comparison towards "walked" on repetitive texture.
     """
     n = int(errors_sq.size)
     if n == 0:
@@ -188,6 +211,19 @@ def _gric(
     limit = lambda_3 * (dim_data - dim_manifold)
     rho = np.minimum(errors_sq / (sigma**2), limit)
     return float(rho.sum() + lambda_1 * dim_manifold * n + lambda_2 * n_params)
+
+
+def _model_score(errors_sq: np.ndarray, inlier_cutoff: float, score_cap: float) -> tuple[float, int]:
+    """How well a model explains the matches, and how many it explains.
+
+    Each correspondence inside ``inlier_cutoff`` contributes ``score_cap`` minus
+    its squared error, and everything else contributes nothing. Outliers
+    therefore cost both models exactly the same, which is what makes the two
+    scores comparable.
+    """
+    inliers = errors_sq < inlier_cutoff
+    score = float(np.sum(np.maximum(0.0, score_cap - errors_sq[inliers]))) if inliers.any() else 0.0
+    return score, int(np.count_nonzero(inliers))
 
 
 def _homography_errors(
@@ -232,6 +268,10 @@ def walked_or_turned(
     Returns a :class:`PairMotion` with ``kind`` in ``walked`` / ``turned`` /
     ``unknown`` and a 0-1 confidence. Pure rotation or a flat scene favours the
     homography and therefore ``turned``.
+
+    The two models are fitted to the same ORB matches and compared by how much of
+    the total explanatory score the homography accounts for. Only real parallax
+    lets the essential matrix explain points the homography cannot.
     """
     fa, fb = _as_orb(a), _as_orb(b)
     pts_a, pts_b = match_features(fa, fb)
@@ -252,30 +292,53 @@ def walked_or_turned(
     if e_mat is not None and e_mat.shape[0] > 3:
         e_mat = e_mat[:3, :3]  # OpenCV can return several solutions stacked
 
-    inliers_h = int(h_mask.sum()) if h_mask is not None else 0
-    inliers_e = int(e_mask.sum()) if e_mask is not None else 0
+    sigma_sq = RANSAC_PX**2
+    score_cap = CHI2_H * sigma_sq
 
-    gric_h = float("inf")
-    if h_mat is not None:
-        gric_h = _gric(_homography_errors(pts_a, pts_b, h_mat), RANSAC_PX, 2, 8)
-    gric_e = float("inf")
+    errors_h = (
+        _homography_errors(pts_a, pts_b, h_mat)
+        if h_mat is not None
+        else np.full(n, np.inf)
+    )
+    f_mat = None
     if e_mat is not None:
-        f_mat = np.linalg.inv(k).T @ e_mat @ np.linalg.inv(k)
-        gric_e = _gric(_sampson_errors(pts_a, pts_b, f_mat), RANSAC_PX, 3, 5)
+        k_inv = np.linalg.inv(k)
+        f_mat = k_inv.T @ e_mat @ k_inv
+    errors_e = _sampson_errors(pts_a, pts_b, f_mat) if f_mat is not None else np.full(n, np.inf)
 
-    if not np.isfinite(gric_h) and not np.isfinite(gric_e):
-        return PairMotion(kind=UNKNOWN, confidence=0.0, n_matches=n)
+    score_h, inliers_h = _model_score(errors_h, CHI2_H * sigma_sq, score_cap)
+    score_e, inliers_e = _model_score(errors_e, CHI2_E * sigma_sq, score_cap)
 
-    kind = TURNED if gric_h <= gric_e else WALKED
-    gap_per_point = abs(gric_h - gric_e) / float(n)
-    confidence = float(np.clip(gap_per_point / GRIC_CONF_SCALE, 0.0, 1.0))
+    total = score_h + score_e
+    best_inliers = max(inliers_h, inliers_e)
+    enough = max(MIN_MATCHES, int(MIN_EXPLAINED_SHARE * n))
+    if total <= 0 or best_inliers < enough:
+        # Neither model explains enough of the matches to decide anything.
+        return PairMotion(
+            kind=UNKNOWN, confidence=0.0, n_matches=n,
+            inliers_h=inliers_h, inliers_e=inliers_e,
+            score_h=score_h, score_e=score_e,
+            homography_share=float(score_h / total) if total > 0 else float("nan"),
+        )
+
+    share = score_h / total
+    if share > HOMOGRAPHY_SHARE:
+        kind = TURNED
+        confidence = float(np.clip((share - HOMOGRAPHY_SHARE) / TURNED_BAND, 0.0, 1.0))
+    else:
+        kind = WALKED
+        confidence = float(np.clip((HOMOGRAPHY_SHARE - share) / WALKED_BAND, 0.0, 1.0))
+
+    # GRIC over the inliers of either model, kept as a reported diagnostic.
+    explained = (errors_h < CHI2_H * sigma_sq) | (errors_e < CHI2_E * sigma_sq)
+    gric_h = _gric(errors_h[explained], RANSAC_PX, 2, 8) if explained.any() else float("inf")
+    gric_e = _gric(errors_e[explained], RANSAC_PX, 3, 5) if explained.any() else float("inf")
 
     rotation = translation = None
     if kind == WALKED and e_mat is not None:
         try:
-            _, rotation, translation, _ = cv2.recoverPose(
-                e_mat, pts_a, pts_b, k, mask=e_mask.copy()
-            )
+            mask = e_mask.copy() if e_mask is not None else None
+            _, rotation, translation, _ = cv2.recoverPose(e_mat, pts_a, pts_b, k, mask=mask)
             norm = np.linalg.norm(translation)
             translation = (translation / norm) if norm > 1e-9 else translation
         except cv2.error:  # pragma: no cover - degenerate configurations
@@ -296,6 +359,9 @@ def walked_or_turned(
         n_matches=n,
         inliers_h=inliers_h,
         inliers_e=inliers_e,
+        score_h=score_h,
+        score_e=score_e,
+        homography_share=float(share),
         gric_h=gric_h,
         gric_e=gric_e,
         R=rotation,

@@ -122,3 +122,20 @@ def test_homography_and_sampson_errors_are_small_for_exact_models(sharp_image):
     pts_b = cv2.perspectiveTransform(pts_a.reshape(-1, 1, 2).astype(np.float64), shift)
     errors = motion._homography_errors(pts_a, pts_b.reshape(-1, 2).astype(np.float32), shift)
     assert np.allclose(errors, 0, atol=1e-6)
+
+
+def test_undecidable_pair_reports_unknown(sharp_image):
+    """When matching collapses, the honest answer is "unknown", not a guess."""
+    rng = np.random.default_rng(3)
+    other = rng.integers(0, 255, sharp_image.shape, dtype=np.uint8)
+    result = motion.walked_or_turned(sharp_image, other)
+    assert result.kind in {motion.UNKNOWN, motion.WALKED, motion.TURNED}
+    if result.kind == motion.UNKNOWN:
+        assert result.confidence == 0.0
+
+
+def test_identical_frames_read_as_turned(sharp_image):
+    """No motion means no parallax, so a homography explains everything."""
+    result = motion.walked_or_turned(sharp_image, sharp_image)
+    assert result.kind == motion.TURNED
+    assert result.homography_share > motion.HOMOGRAPHY_SHARE

@@ -27,17 +27,28 @@ def checkerboard(width: int = 320, height: int = 240, square: int = 20) -> np.nd
 
 
 def textured_scene(width: int = 320, height: int = 240, seed: int = 0) -> np.ndarray:
-    """A checkerboard with coloured blobs and noise: realistic feature density."""
+    """A rich, *non-repetitive* scene: well exposed, with unambiguous features.
+
+    Repetitive texture (a plain checkerboard) makes descriptor matching ambiguous
+    and would test the fixture rather than the code, so the texture here is
+    random at several scales and every patch is unique.
+    """
     rng = np.random.default_rng(seed)
-    img = checkerboard(width, height, square=24)
-    img = cv2.GaussianBlur(img, (0, 0), 0.6)
-    for _ in range(40):
-        cx, cy = rng.integers(0, width), rng.integers(0, height)
-        r = int(rng.integers(4, 16))
-        colour = tuple(int(c) for c in rng.integers(30, 226, size=3))
-        cv2.circle(img, (int(cx), int(cy)), r, colour, -1)
-    speckle = rng.normal(0, 8, size=img.shape)
-    return np.clip(img.astype(np.float64) + speckle, 0, 255).astype(np.uint8)
+    coarse = rng.integers(40, 215, (max(2, height // 16), max(2, width // 16), 3), dtype=np.uint8)
+    img = cv2.resize(coarse, (width, height), interpolation=cv2.INTER_CUBIC)
+    mid = rng.integers(40, 215, (max(2, height // 4), max(2, width // 4), 3), dtype=np.uint8)
+    img = cv2.addWeighted(
+        img, 0.55, cv2.resize(mid, (width, height), interpolation=cv2.INTER_LINEAR), 0.45, 0
+    )
+    for _ in range(60):
+        cx, cy = int(rng.integers(0, width)), int(rng.integers(0, height))
+        radius = int(rng.integers(3, 14))
+        colour = tuple(int(c) for c in rng.integers(40, 215, size=3))
+        cv2.circle(img, (cx, cy), radius, colour, -1)
+    speckle = rng.normal(0, 10, size=img.shape)
+    img = np.clip(img.astype(np.float64) + speckle, 20, 235).astype(np.uint8)
+    # A touch of blur: ORB wants structure, not single-pixel noise.
+    return cv2.GaussianBlur(img, (0, 0), 0.7)
 
 
 def pan_frames(n: int = 60, width: int = 320, height: int = 240, step: int = 3) -> list[np.ndarray]:

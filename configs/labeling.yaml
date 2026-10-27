@@ -21,6 +21,7 @@ light:
   dark_mean: 50
   bright_mean: 210
   video_brightness_std: 12          # above -> lighting
+  video_bad_ratio: 0.25             # >25% DARK or BRIGHT frames -> lighting
   clip_dark_max: 0.10               # share of near-black pixels tolerated
   clip_bright_max: 0.10             # share of near-white pixels tolerated
 

@@ -103,6 +103,7 @@ class LightCfg:
     dark_mean: float = 50.0
     bright_mean: float = 210.0
     video_brightness_std: float = 12.0
+    video_bad_ratio: float = 0.25
     clip_dark_max: float = 0.10
     clip_bright_max: float = 0.10
 
