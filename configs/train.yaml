@@ -1,0 +1,31 @@
+# Model and training settings.
+seed: [0, 1, 2, 3, 4]        # ensemble of 5
+
+model:
+  d_model: 128
+  layers: 2
+  heads: 4
+  dropout: 0.3
+  max_tokens: 80             # frame tokens per capture (DINOv2 subset)
+
+stage_a:                     # pretext: learn to spot damage
+  epochs: 30
+  variants_per_epoch: 2000   # generated on the fly from clean features
+  batch_size: 16
+
+stage_b:                     # learn the score
+  epochs: 50
+  loss: ranking              # ranking | ranking+mse
+  aux_pretext_weight: 0.3
+  problem_weight: 1.0
+  batch_size: 8
+  margin: 0.1                # pairwise ranking margin
+  patience: 8                # early stopping
+
+optimizer:
+  lr: 3.0e-4
+  weight_decay: 1.0e-2
+
+eval:
+  split: leave_one_scene_out
+  bootstrap: 1000

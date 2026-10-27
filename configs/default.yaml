@@ -1,0 +1,16 @@
+# Shared settings: paths and the global frame budget.
+paths:
+  raw: data/raw
+  degraded: data/degraded
+  frames: data/frames
+  features: data/features
+  labels: data/labels
+  splits: data/splits
+  classifier_train: data/classifier_train
+  models: models
+  reports: reports
+
+runtime:
+  time_budget_s: 60        # total budget for one capture on a laptop CPU
+  num_workers: 0           # torch DataLoader workers (0 = main process, safest on macOS)
+  device: auto             # auto | cpu | cuda | mps

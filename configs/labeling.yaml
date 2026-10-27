@@ -1,0 +1,63 @@
+# Every threshold used to turn measurements into labels.
+# Starting values: calibrate on your own cameras (see reports/label_agreement.md).
+sampling:
+  fps: 2                     # frames taken per second of video
+  max_frames: 600            # cap for long videos (spread evenly)
+  pair_gap_frames: 2         # walked-vs-turned compares frames ~1 s apart
+  dino_max_frames: 80        # DINOv2 uses at most this many frames
+
+images:
+  extensions: [.jpg, .jpeg, .png]
+  order: exif_time_then_name   # sort photos by EXIF time, else by file name
+  unknown_order: dino_nearest  # no order info -> pair each photo with its most similar photo
+
+resize_width: 960            # all measurements at the same width
+
+blur:
+  sharp_min_laplacian_var: 100      # below = BLURRY (calibrate!)
+  video_blur_ratio: 0.25            # >25% blurry frames -> motion_blur
+
+light:
+  dark_mean: 50
+  bright_mean: 210
+  video_brightness_std: 12          # above -> lighting
+  clip_dark_max: 0.10               # share of near-black pixels tolerated
+  clip_bright_max: 0.10             # share of near-white pixels tolerated
+
+views:
+  duplicate_cosine: 0.97            # above -> DUPLICATE
+  min_unique_views: 25              # among the DINOv2 frames; below -> too_few_views
+  min_diversity: 0.10               # mean pairwise cosine distance
+
+motion:
+  walked_ratio_min: 0.5             # below -> no_walking
+
+overlap:
+  min_overlap: 0.3                  # neighbour pair below this = low overlap
+  low_overlap_ratio: 0.2            # >20% low pairs -> low_overlap
+
+exif:
+  slow_shutter_s: 0.01              # slower than 1/100 s adds blur evidence
+  high_iso: 1600                    # above adds noise evidence
+  max_cameras: 1                    # more -> mixed_cameras
+  max_sizes: 1                      # more image sizes -> mixed_cameras
+
+coverage:
+  azimuth_bins: 8
+  elevation_bins: 3
+  max_empty_bins: 6                 # of 24 bins
+
+shiny:
+  prob: 0.6
+  video_ratio: 0.3
+
+texture:
+  min_features: 150
+  video_ratio: 0.4
+
+noise:
+  frame_max: 6.0                    # above -> noisy frame
+  video_ratio: 0.3
+
+review:
+  margin: 0.15                      # value within 15% of a threshold -> REVIEW

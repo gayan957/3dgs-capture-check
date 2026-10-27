@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capturecheck"
+version = "0.1.0"
+description = "Predict 3D Gaussian Splatting quality before you train, and diagnose the capture."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "CaptureCheck contributors" }]
+keywords = ["3dgs", "gaussian-splatting", "capture-quality", "computer-vision"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+  "numpy>=1.26,<3",
+  "opencv-python-headless>=4.9",
+  "pillow>=10.2",
+  "pandas>=2.2",
+  "scipy>=1.12",
+  "scikit-learn>=1.4",
+  "pyyaml>=6.0",
+  "typer>=0.12",
+  "rich>=13.7",
+  "tqdm>=4.66",
+  "joblib>=1.3",
+  "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+model = ["torch>=2.2", "torchvision>=0.17", "lightgbm>=4.3", "onnx>=1.16", "onnxruntime>=1.17"]
+review = ["streamlit>=1.33"]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "lightgbm>=4.3",
+  "onnx>=1.16",
+  "onnxruntime>=1.17",
+  "streamlit>=1.33",
+]
+
+[project.scripts]
+capturecheck = "capturecheck.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["capturecheck*"]
+
+[tool.setuptools.package-data]
+capturecheck = ["../configs/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["B008"]

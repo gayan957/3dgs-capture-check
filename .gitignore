@@ -1,0 +1,23 @@
+# Data and models are too big for git
+data/
+models/
+reports/figures/*.png
+*.npz
+*.joblib
+*.pt
+*.onnx
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS / editors
+.DS_Store
