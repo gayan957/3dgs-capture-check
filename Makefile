@@ -1,10 +1,13 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: setup label review train eval test lint format degrade splits features clean
+.PHONY: setup demo label review train eval export test test-all lint format degrade splits features clean
 
 setup:
 	$(PIP) install -e ".[dev]"
+
+demo:
+	$(PY) scripts/00_make_demo_data.py --clean
 
 label:
 	$(PY) -m capturecheck.cli label data
@@ -27,7 +30,13 @@ train:
 eval:
 	$(PY) -m capturecheck.cli evaluate
 
+export:
+	$(PY) -m capturecheck.cli export
+
 test:
+	.venv/bin/pytest -q -m "not slow"
+
+test-all:
 	.venv/bin/pytest -q
 
 lint:

@@ -154,7 +154,38 @@ Writes `reports/evaluation_report.md` with Spearman correlation (and a bootstrap
 
 The report calls it out when a baseline ranks the test captures as well as the model does. Read the confidence interval, not the point estimate: a test set of a few dozen captures cannot separate methods whose intervals overlap.
 
-**The numbers in `reports/evaluation_report.md` are only as meaningful as the `psnr` column they are measured against.** On the synthetic demo set that column is a geometric stand-in, not a 3DGS measurement, so a result there says the model recovered the stand-in — nothing about real reconstruction quality. Fill `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result.
+### Results on the synthetic demo set
+
+> **These numbers do not say anything about real reconstruction quality.** The demo set's `psnr` column is a geometric stand-in, not a 3DGS measurement, and its 23 test captures are far too few to separate methods whose intervals overlap. They are here to show the pipeline runs end to end and produces a report; replace `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result of your own.
+
+Run `2026-10-27_run02`, 23 unseen test captures across 2 held-out scenes (one of them the test-only "company" scene):
+
+| Method | Spearman vs target (95% CI) |
+|---|---|
+| Mean blur | 0.20 (−0.28 – 0.61) |
+| Frame count | 0.37 (−0.03 – 0.69) |
+| ORB match count (COLMAP stand-in) | 0.47 (0.04 – 0.81) |
+| LightGBM on the same features | 0.60 (0.22 – 0.85) |
+| **CaptureCheck** | **0.71 (0.37 – 0.91)** |
+
+| Problem label | Precision | Recall | Positives in test |
+|---|---|---|---|
+| `motion_blur` | 1.00 | 0.33 | 3 |
+| `noisy` | 1.00 | 1.00 | 3 |
+| `low_overlap` | 0.56 | 0.62 | 8 |
+| `poor_coverage` | 0.48 | 1.00 | 11 |
+| `too_few_views` | 0.21 | 1.00 | 4 |
+
+Validation ranking accuracy across the five leave-one-scene-out folds: 0.84 (0.81–0.88).
+
+Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
+
+| Capture | Measure | Score | Total |
+|---|---|---|---|
+| 600 photos | 19.1 s | 0.8 ms | **19.1 s** |
+| 5-minute 1080p video (600 frames at 2 fps) | 14.6 s | 0.8 ms | **14.6 s** |
+
+Both are well inside the 60-second budget. The per-frame cost is checked by `tests/test_budget.py`.
 
 ## Dataset and collection protocol
 - **Sources:** company captures (test only), your own videos and photo bundles, and broken copies of good captures.
