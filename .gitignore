@@ -1,5 +1,6 @@
-# Data and models are too big for git
-data/
+# Data and models are too big for git, but their documentation is not
+data/*
+!data/README.md
 models/
 reports/figures/*.png
 *.npz
