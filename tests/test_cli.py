@@ -143,3 +143,32 @@ def test_check_reports_a_score_when_a_run_exists(tiny_bundle, monkeypatch):
     assert result.exit_code == 0, result.stdout
     assert "0.73" in result.stdout
     assert "2026-01-01_run01" in result.stdout
+
+
+def test_json_output_is_strictly_valid(tiny_bundle):
+    """`--json` is for piping, so a missing measurement must be null, not NaN."""
+    from capturecheck.cli import json_safe
+
+    result = runner.invoke(
+        app, ["check", str(tiny_bundle), "--no-dino", "--no-score", "--json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "NaN" not in result.stdout
+    assert "Infinity" not in result.stdout
+    # json.loads accepts NaN, so parse strictly instead.
+    json.loads(result.stdout, parse_constant=_reject)
+
+    assert json_safe(float("nan")) is None
+    assert json_safe(float("inf")) is None
+    assert json_safe({"a": [float("nan"), 1.5]}) == {"a": [None, 1.5]}
+    assert json_safe(np_float()) == 2.5
+
+
+def _reject(name):
+    raise AssertionError(f"{name} is not valid JSON")
+
+
+def np_float():
+    import numpy as np
+
+    return np.float32(2.5)

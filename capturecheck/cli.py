@@ -43,6 +43,31 @@ def quality_band(score: float) -> str:
     return "unknown"
 
 
+def json_safe(value):
+    """Make a value strictly JSON-serialisable.
+
+    A missing measurement is NaN, and ``json.dumps`` writes that as a bare
+    ``NaN``, which Python reads back but ``jq`` and most other parsers refuse.
+    ``--json`` is there to be piped into something, so missing values become
+    ``null``.
+    """
+    import math
+
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, (bool, str, type(None))):
+        return value
+    if isinstance(value, (int,)):
+        return int(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return None if (math.isnan(number) or math.isinf(number)) else number
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"capturecheck {__version__}")
@@ -90,8 +115,8 @@ def check(
     if as_json:
         payload = {
             "capture_id": result.capture_id,
-            "input_type": row["input_type"],
-            "n_frames": row["n_frames"],
+            "input_type": str(row["input_type"]),
+            "n_frames": int(row["n_frames"]),
             "score": prediction.score if prediction else None,
             "band": quality_band(prediction.score) if prediction else None,
             "problems": {
@@ -109,11 +134,11 @@ def check(
                 for k in schema.VIDEO_STAT_COLUMNS
             },
             "review": int(row.get("review", 0) or 0),
-            "review_reason": row.get("review_reason") or "",
+            "review_reason": str(row.get("review_reason") or ""),
             "time_s": row.get("time_s_total"),
             "model": prediction.run_id if prediction else None,
         }
-        console.print_json(json.dumps(payload, default=float))
+        console.print_json(json.dumps(json_safe(payload)))
         return
 
     # --- human-readable report -------------------------------------------- #
