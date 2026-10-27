@@ -246,12 +246,13 @@ Every threshold lives in `configs/`, and no module hard-codes one:
 The defaults are a starting point, not a calibration. Run the review screen on a few dozen of your own captures and `scripts/07_check_label_agreement.py` will tell you which thresholds to move and in which direction.
 
 ## Limitations
-- **The camera path is approximate.** Relative poses are chained with an unknown, drifting scale; it is enough to answer "did the camera ever get to the other side?" and not much more. When too few pairs give a pose, coverage is reported as unreliable rather than guessed.
+- **The camera path is approximate.** Relative poses are chained with an unknown, drifting scale; it is enough to answer "did the camera ever get to the other side?" and not much more. Coverage is therefore judged on the *azimuth span* of the path, which survives that drift; the 8×3 bin grid is reported and used to name which directions are missing, but counting empty bins turned out to track how the path drifted rather than how much was filmed, so it is not what the label turns on. When too few pairs give a pose, coverage is reported as unreliable rather than guessed.
 - **A pan across a flat scene reads as `turned`.** A homography explains a planar scene exactly, so filming a wall while walking past it looks the same as pivoting. For 3DGS the consequence is similar — little usable parallax — but the label names the wrong cause.
 - **Thresholds depend on camera and resolution.** Sharpness in particular is only comparable between frames measured at the same width; captures narrower than `resize_width` are measured at their own width, recorded as `measured_width`.
 - **Photo bundles with neither EXIF time nor numbered names** are paired by visual similarity, which is less reliable than true capture order.
 - **Shiny/glass detection** depends on a small hand-labelled classifier; with none trained, `reflective` is never flagged rather than guessed.
-- **Predictions are validated only on the captures in the evaluation report.** The model has no way to know about a failure mode it has never seen.
+- **Predictions are validated only on the captures in the evaluation report.** The model has no way to know about a failure mode it has never seen. On the synthetic demo set in particular, `mixed_cameras` and `reflective` have no positive examples at all, so nothing about them has been tested.
+- **The thresholds have not been calibrated against human judgement.** They are the build guide's starting values, sanity-checked against synthetic captures whose ground truth is known. `noise.frame_max` in particular sits above anything the synthetic set produces. Run the review screen and `scripts/07_check_label_agreement.py` on real captures before trusting a label's precision.
 
 ## Contributing
 `make lint && make test` must pass (tests cover videos and image bundles, and run offline). Keep thresholds in `configs/` and label names in `capturecheck/labeling/schema.py`. See [`CLAUDE.md`](CLAUDE.md) for the rules that must not be broken.
