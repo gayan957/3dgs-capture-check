@@ -20,6 +20,13 @@ with the capture. A capture is a **video** or an **image bundle** (a folder or
 7. **60 seconds per capture on a laptop CPU**, including a 5-minute video (600
    frames) and a 600-photo bundle. `utils/timing.py` reports each step.
 8. **DINOv2 is frozen.** Only the small head on top is trained.
+9. **Training and scoring must see the same inputs.** A capture rebuilt from the
+   label CSVs and the same capture measured live must produce identical token
+   shapes; `data/features/<id>.npz` carries the pair table and coverage grid for
+   exactly this reason, so it is part of the training data, not a cache.
+10. **A broken copy must really be broken.** An op that cannot create its defect
+    on a given capture produces nothing rather than a copy with a false label.
+    `scripts/12_check_degradations.py` checks this.
 
 ## Shape of the pipeline
 
@@ -35,6 +42,9 @@ transformer → a quality score.
 - `make lint && make test` must pass before a commit.
 - Prefer an honest "unknown" over a guess: a measurement that failed should say so
   rather than produce a number nobody can trust.
+- Pandas reads a blank CSV cell as NaN, which is **truthy**: `value or default`
+  silently yields the string `"nan"`. Use the `_text`/`_number` helpers in
+  `model/data.py`. This one skipped the whole pretext stage once.
 
 ## Commands
 
