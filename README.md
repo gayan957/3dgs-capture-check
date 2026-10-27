@@ -166,6 +166,14 @@ Five seeds are trained and kept as an ensemble; each validates on a different he
 
 Stage A needs clean captures to damage, so a dataset in which every capture is marked degraded leaves it with nothing to do. The run's `metrics.json` records whether it **ran**, not just whether it was asked for, and the training log's `stage` column shows both stages — worth checking, because a silently skipped stage A looks exactly like a fast training run.
 
+On a laptop CPU the default settings — five seeds, 30 pretext epochs of 2000 generated variants each — take roughly 20 minutes, most of it stage A. Still less than one 3DGS run, and it is a one-off. For a quick check that the wiring works:
+
+```bash
+capturecheck train --seed 0 --no-stage-a    # one seed, score stage only: under a minute
+```
+
+Lower `stage_a.epochs` or `seed` in `configs/train.yaml` for anything in between.
+
 ## Evaluation and results
 ```bash
 capturecheck evaluate
