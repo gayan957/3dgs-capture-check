@@ -116,6 +116,8 @@ class EvaluationResult:
     report_path: Path | None = None
     n_test: int = 0
     n_with_psnr: int = 0
+    n_videos: int = 0
+    n_bundles: int = 0
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -184,6 +186,21 @@ def evaluate_run(
         )
 
     notes: list[str] = []
+    n_videos = sum(1 for s in test_samples if s.input_type == "video")
+    n_bundles = len(test_samples) - n_videos
+    for kind, count in (("video", n_videos), ("image bundle", n_bundles)):
+        if 0 < count < 3:
+            notes.append(
+                f"Only {count} test capture(s) are of type `{kind}`, too few for a "
+                f"separate correlation, so that column is blank."
+            )
+        elif count == 0:
+            notes.append(
+                f"No test capture is of type `{kind}`, so that column is blank. "
+                "Broken copies are always written as photo bundles, so videos only "
+                "reach the test set as original captures."
+            )
+
     psnr = np.array([s.psnr for s in test_samples], dtype=float)
     n_with_psnr = int(np.isfinite(psnr).sum())
     if n_with_psnr < 3:
@@ -266,6 +283,8 @@ def evaluate_run(
         timing=timing,
         n_test=len(test_samples),
         n_with_psnr=n_with_psnr,
+        n_videos=n_videos,
+        n_bundles=n_bundles,
         notes=notes,
     )
 
@@ -414,7 +433,8 @@ def _write_report(
         "# Evaluation report",
         "",
         f"Run `{result.run_id}` · {result.n_test} unseen test captures "
-        f"({result.n_with_psnr} with a PSNR target)",
+        f"({result.n_videos} video, {result.n_bundles} image bundle; "
+        f"{result.n_with_psnr} with a PSNR target)",
         "",
         "Test scenes were never trained on, and scenes marked `company` are test-only.",
         "",

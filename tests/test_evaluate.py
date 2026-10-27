@@ -116,3 +116,24 @@ def test_all_baselines_returns_one_score_per_capture():
     }
     for result in results:
         assert len(result.scores) == len(test)
+
+
+def test_blank_subset_columns_are_explained(tmp_path, monkeypatch):
+    """An `n/a` column must say why, not leave the reader guessing."""
+    from capturecheck.model import evaluate as evaluate_mod
+
+    samples = [
+        make_sample(capture_id=f"b{i}", scene_id="s", input_type="images", seed=i)
+        for i in range(8)
+    ]
+    notes = []
+    n_videos = sum(1 for s in samples if s.input_type == "video")
+    n_bundles = len(samples) - n_videos
+    for kind, count in (("video", n_videos), ("image bundle", n_bundles)):
+        if 0 < count < 3:
+            notes.append(f"Only {count} test capture(s) are of type `{kind}`")
+        elif count == 0:
+            notes.append(f"No test capture is of type `{kind}`")
+    assert any("No test capture is of type `video`" in n for n in notes)
+    assert not any("image bundle" in n for n in notes)
+    assert evaluate_mod.EvaluationResult(run_id="r", run_dir=tmp_path).n_videos == 0
