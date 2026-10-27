@@ -112,3 +112,38 @@ def test_dummy_sample_shapes():
     assert sample.pairs.shape == (3, PAIR_DIM)
     assert sample.global_vec.shape == (GLOBAL_DIM,)
     assert np.isfinite(sample.frames).all()
+
+
+def test_export_wrapper_averages_the_whole_ensemble():
+    """The wrapper must hold every member, not just the first.
+
+    Exporting one member of five made `capturecheck check` -- which prefers
+    ONNX -- score with a fifth of the model, disagreeing with the PyTorch
+    ensemble by up to 0.18 on a 0-1 score. No graph-level check could see it:
+    the ONNX faithfully reproduced the one member it was given.
+    """
+    nets = [
+        CaptureQualityNet(d_model=32, layers=1, heads=2, dropout=0.0).eval() for _ in range(3)
+    ]
+    for i, net in enumerate(nets):  # make the members genuinely different
+        torch.manual_seed(i + 1)
+        with torch.no_grad():
+            for param in net.parameters():
+                param.add_(torch.randn_like(param) * 0.05)
+
+    inputs = (
+        torch.randn(1, 6, FRAME_DIM),
+        torch.randn(1, 3, PAIR_DIM),
+        torch.randn(1, GLOBAL_DIM),
+        torch.zeros(1, 6, dtype=torch.bool),
+        torch.zeros(1, 3, dtype=torch.bool),
+    )
+    with torch.no_grad():
+        singles = [ExportWrapper(net).eval()(*inputs)[0] for net in nets]
+        together = ExportWrapper(nets).eval()(*inputs)[0]
+
+    assert together == pytest.approx(float(torch.stack(singles).mean()), abs=1e-6)
+    # And it is not simply the first member, which is the bug being guarded.
+    spread = float(torch.stack(singles).max() - torch.stack(singles).min())
+    assert spread > 1e-4, "members too alike for this test to prove anything"
+    assert abs(float(together) - float(singles[0])) > 1e-6

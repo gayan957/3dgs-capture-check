@@ -34,6 +34,8 @@ class Prediction:
     top_frames: list[int] = field(default_factory=list)
     run_id: str | None = None
     backend: str = "torch"
+    #: One score per ensemble member. Empty on the ONNX backend, which averages
+    #: them inside the graph and cannot report the members separately.
     score_per_seed: list[float] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -113,7 +115,9 @@ class RunPredictor:
                 if "attention" in names
                 else None
             )
-            scores = [score]
+            # The graph already averaged the ensemble, so there is nothing
+            # per-seed to report from this backend.
+            scores: list[float] = []
         else:
             scores, problem_logit_list, attentions = [], [], []
             for model in self.models:

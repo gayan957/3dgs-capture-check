@@ -1,9 +1,16 @@
 """Export a trained run to ONNX, and check the exported model still agrees.
 
 ONNX Runtime on CPU is several times faster than PyTorch for a model this small,
-which matters when the whole check has a 60-second budget. Only the first member
-of the ensemble is exported, so the export is checked against *that* member, not
-against the averaged ensemble.
+which matters when the whole check has a 60-second budget.
+
+The *whole* ensemble goes into the graph, averaged inside it. Exporting only the
+first member used to look like a fair trade for speed, but it meant
+`capturecheck check`, which prefers ONNX, scored with one model of five while
+everything else described a 5-seed ensemble: on the demo test set the two
+disagreed by up to 0.18 on a 0-1 score and ranked the captures differently
+(Spearman 0.67 against 0.69). No export check could catch that, because it
+compared ONNX against the one member it had exported. Five models cost about
+5 ms against a 60-second budget, so there is nothing to trade.
 """
 
 from __future__ import annotations
@@ -23,21 +30,37 @@ TOLERANCE = 1e-4
 
 
 class ExportWrapper(torch.nn.Module):
-    """Plain tensors in, plain tensors out: ONNX cannot export a dataclass."""
+    """Plain tensors in, plain tensors out: ONNX cannot export a dataclass.
 
-    def __init__(self, model: torch.nn.Module) -> None:
+    Holds the whole ensemble and averages it, the same reduction
+    :meth:`RunPredictor.predict` applies on the PyTorch path, so the two
+    backends answer with the same number.
+    """
+
+    def __init__(self, models: torch.nn.Module | list[torch.nn.Module]) -> None:
         super().__init__()
-        self.model = model
+        if isinstance(models, torch.nn.Module):
+            models = [models]
+        self.models = torch.nn.ModuleList(models)
 
     def forward(self, frames, pairs, global_vec, frame_mask, pair_mask):
-        out = self.model(
-            frames, pairs, global_vec,
-            frame_mask=frame_mask, pair_mask=pair_mask, return_attention=True,
-        )
-        attention = out.attention
-        if attention is None:  # pragma: no cover - return_attention is always True here
-            attention = torch.zeros_like(frames[:, :, 0])
-        return out.score, out.problems, attention
+        scores, problems, attentions = [], [], []
+        for model in self.models:
+            out = model(
+                frames, pairs, global_vec,
+                frame_mask=frame_mask, pair_mask=pair_mask, return_attention=True,
+            )
+            scores.append(out.score)
+            problems.append(out.problems)
+            attentions.append(
+                out.attention
+                if out.attention is not None
+                else torch.zeros_like(frames[:, :, 0])
+            )
+        score = torch.stack(scores).mean(dim=0)
+        problem = torch.stack(problems).mean(dim=0)
+        attention = torch.stack(attentions).mean(dim=0)
+        return score, problem, attention
 
 
 def _dummy_sample(n_frames: int = 8, n_pairs: int = 4, seed: int = 0) -> CaptureSample:
@@ -72,10 +95,12 @@ def export_run(
         raise RuntimeError("no trained run found; run `capturecheck train` first")
 
     predictor = RunPredictor(path, prefer_onnx=False)
-    model = predictor.models[0]
-    model.eval()
-    wrapper = ExportWrapper(model)
+    models = predictor.models
+    for model in models:
+        model.eval()
+    wrapper = ExportWrapper(models)
     wrapper.eval()
+    log.info("exporting all %d ensemble members, averaged in the graph", len(models))
 
     inputs = _inputs(predictor, n_frames=8, n_pairs=4)
     target = Path(out_path) if out_path else path / "model.onnx"

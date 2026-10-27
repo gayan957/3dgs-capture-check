@@ -132,14 +132,12 @@ Checking one of those demo captures afterwards gives the real thing — this is
 $ capturecheck -q check data/raw/lobby_pivot
 
 lobby_pivot  (video, 64 frames)
-Score: 0.56  (fair)   model: 2026-10-27_run01
+Score: 0.29  (likely unusable)   model: 2026-10-27_run01
 Problems:
-  • No walking     only 4% of frame pairs show real camera movement; the rest is
+  • No walking     only 0% of frame pairs show real camera movement; the rest is
                    rotation on the spot  (p=1.00)
-  • Poor coverage  the camera only got 37° round the subject (want at least 180°);
-                   never filmed from: front, eye level; back-right, eye level;
-                   back, eye level (+3 more)  (p=1.00)
-Time: 2 s (budget 60 s)
+  • Poor coverage  camera never moved, so only one side was captured  (p=1.00)
+Time: 1 s (budget 60 s)
 ```
 
 ## Labelling workflow
@@ -213,10 +211,10 @@ Run `2026-10-27_run01`, 17 unseen test captures across 2 held-out scenes (one of
 | Mean blur | −0.08 (−0.58 – 0.43) |
 | Frame count | 0.31 (−0.19 – 0.73) |
 | ORB match count (COLMAP stand-in) | 0.59 (0.14 – 0.91) |
-| **CaptureCheck** | **0.67 (0.21 – 0.94)** |
+| **CaptureCheck** | **0.69 (0.24 – 0.94)** |
 | LightGBM on the same features | 0.75 (0.40 – 0.94) |
 
-**LightGBM on the same features beats the model here**, 0.75 to 0.67. The intervals overlap almost entirely, so on 17 captures the honest reading is "indistinguishable" rather than "worse" — but the model is not earning its place on this set, and `reports/evaluation_report.md` prints that as a note rather than burying it. Both clearly beat frame count and mean blur. The target of ≥ 0.70 was not reached; what that costs is unknown until the targets are real PSNR values rather than a stand-in.
+**LightGBM on the same features beats the model here**, 0.75 to 0.69. The intervals overlap almost entirely, so on 17 captures the honest reading is "indistinguishable" rather than "worse" — but the model is not earning its place on this set, and `reports/evaluation_report.md` prints that as a note rather than burying it. Both clearly beat frame count and mean blur. The target of ≥ 0.70 was not reached; what that costs is unknown until the targets are real PSNR values rather than a stand-in.
 
 Only one test capture is a video, too few for a separate per-format correlation, so that column of the report is blank.
 
@@ -225,22 +223,22 @@ What *is* clearly working is the diagnosis:
 | Problem label | Precision | Recall | Positives in test |
 |---|---|---|---|
 | `lighting` | 1.00 | 1.00 | 3 |
+| `low_overlap` | 1.00 | 1.00 | 6 |
 | `low_texture` | 1.00 | 1.00 | 1 |
-| `poor_coverage` | 1.00 | 0.94 | 16 |
-| `low_overlap` | 0.86 | 1.00 | 6 |
-| `noisy` | 0.75 | 1.00 | 3 |
+| `noisy` | 1.00 | 1.00 | 3 |
+| `poor_coverage` | 1.00 | 1.00 | 16 |
 | `motion_blur` | 1.00 | 0.67 | 3 |
-| `too_few_views` | 0.33 | 1.00 | 3 |
+| `too_few_views` | 0.27 | 1.00 | 3 |
 
-`too_few_views` over-fires: it catches every positive but flags 9 captures where 3 are labelled. On a set this small that is a handful either way, and the head thresholds have not been tuned — deliberately, since tuning them on the test set is what rule 3 forbids.
+`too_few_views` over-fires badly: it catches every positive but flags 11 captures where 3 are labelled. The head thresholds have not been tuned — deliberately, since tuning them on the test set is what rule 3 forbids.
 
-`no_walking`, `mixed_cameras` and `reflective` have no positives in this test set: the two held-out scenes happen to contain no pivot capture, the demo captures all come from one synthetic camera, and no shiny classifier has been trained. Those three columns are untested, not passing.
+`mixed_cameras` and `reflective` have no positives in this test set: the demo captures all come from one synthetic camera, and no shiny classifier has been trained. Those two columns are untested, not passing. `no_walking` has no positives either, because neither held-out scene contains a pivot capture, and the model flagged one capture anyway — a precision of 0.00 on a single prediction, which says nothing either way.
 
 A second caveat applies to all of them: these are measured against the **rules'** labels, not against human judgement. The thresholds in `configs/labeling.yaml` have not been calibrated against a real review yet, so a high precision here says the model reproduces the rules, not that the rules are right. [`reports/label_agreement.md`](reports/label_agreement.md) explains how to close that gap.
 
 Validation ranking accuracy across the five leave-one-scene-out folds: 0.77 on average, but the folds run 0.40 (holding out `lobby`) to 0.90 (holding out `kitchen`). One fold below chance is what a demo set of this size looks like; it is also the number to watch when the set grows, and it is stable across reruns — `lobby` is the pivot scene, and holding it out leaves no example of a capture that turned instead of walking.
 
-The inputs behind these figures are reproducible: `make demo` renders the same pixels and `make degrade` cuts the same copies on every run, verified byte-identical. Training is seeded as well, but whether two runs on the same data produce the same weights has not been checked.
+These figures are reproducible end to end: `make demo` renders the same pixels, `make degrade` cuts the same copies, and training the same data twice produced a byte-identical `model.pt` and the same validation accuracy to every digit. The ONNX export carries the whole five-member ensemble, so `capturecheck check` and the PyTorch model agree to within 1e-7 and rank captures identically.
 
 Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
 

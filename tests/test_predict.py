@@ -89,3 +89,54 @@ def test_sample_from_result_without_measurements(tiny_bundle):
     sample = sample_from_result(result)
     assert sample.frames.shape[0] > 0
     assert sample.pairs.shape[0] == 0  # no pair table was kept
+
+
+@pytest.mark.slow
+def test_both_backends_score_a_capture_the_same(saved_run):
+    """The check that was missing: compare the backends, not just the graph.
+
+    `verify_export` compares ONNX against the wrapper it exported, so it passed
+    while the ONNX held one member of the ensemble and the PyTorch path averaged
+    all of them. Only going through `RunPredictor` both ways catches that, and
+    the shipped artefact is the ONNX one, so this is the number users see.
+    """
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("onnxscript")
+
+    from capturecheck.model.export import export_run
+
+    export_run(run_dir=saved_run)
+    assert (saved_run / "model.onnx").is_file()
+
+    onnx = RunPredictor(saved_run, prefer_onnx=True)
+    torch_side = RunPredictor(saved_run, prefer_onnx=False)
+    assert onnx.backend == "onnx" and torch_side.backend == "torch"
+
+    samples = [make_sample(capture_id=f"c{i}", seed=100 + i) for i in range(8)]
+    from_onnx = np.array([onnx.predict(s).score for s in samples])
+    from_torch = np.array([torch_side.predict(s).score for s in samples])
+
+    assert np.max(np.abs(from_onnx - from_torch)) < 1e-4
+    # And they must order the captures identically, which is what the score is for.
+    assert list(np.argsort(from_onnx)) == list(np.argsort(from_torch))
+
+
+@pytest.mark.slow
+def test_onnx_reports_no_per_seed_scores(saved_run):
+    """The ONNX graph averages the members, so it cannot break them out.
+
+    It must say so with an empty list rather than report the ensemble mean as if
+    it were a single seed's score.
+    """
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("onnxscript")
+
+    from capturecheck.model.export import export_run
+
+    export_run(run_dir=saved_run)
+    prediction = RunPredictor(saved_run, prefer_onnx=True).predict(make_sample())
+    assert prediction.backend == "onnx"
+    assert prediction.score_per_seed == []
+    # The torch path still reports one score per member.
+    from_torch = RunPredictor(saved_run, prefer_onnx=False).predict(make_sample())
+    assert len(from_torch.score_per_seed) == 2
