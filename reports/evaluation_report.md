@@ -1,6 +1,6 @@
 # Evaluation report
 
-Run `2026-10-27_run01` · 23 unseen test captures (2 with a PSNR target)
+Run `2026-10-27_run01` · 17 unseen test captures (1 video, 16 image bundle; 2 with a PSNR target)
 
 Test scenes were never trained on, and scenes marked `company` are test-only.
 
@@ -10,11 +10,11 @@ Spearman correlation between each method's score and the quality target, with a 
 
 | method | Spearman (95% CI) | videos | image bundles |
 |---|---|---|---|
-| **capturecheck** | 0.59 (0.17 – 0.86) | n/a | 0.59 |
-| `frame_count` | 0.37 (-0.03 – 0.69) | n/a | 0.37 |
-| `mean_blur` | 0.20 (-0.28 – 0.61) | n/a | 0.20 |
-| `orb_matches` | 0.47 (0.04 – 0.81) | n/a | 0.47 |
-| `lightgbm_features` | 0.55 (0.14 – 0.84) | n/a | 0.55 |
+| **capturecheck** | 0.67 (0.31 – 0.89) | n/a | 0.72 |
+| `frame_count` | 0.31 (-0.19 – 0.73) | n/a | 0.27 |
+| `mean_blur` | -0.15 (-0.67 – 0.34) | n/a | -0.07 |
+| `orb_matches` | 0.51 (-0.02 – 0.90) | n/a | 0.45 |
+| `lightgbm_features` | 0.76 (0.45 – 0.93) | n/a | 0.71 |
 
 ## Problems found
 
@@ -22,20 +22,20 @@ Precision and recall of the model's problem heads against the labels.
 
 | problem | test captures | positives | predicted | precision | recall | F1 |
 |---|---:|---:|---:|---:|---:|---:|
-| `motion_blur` | 23 | 3 | 3 | 1.00 | 1.00 | 1.00 |
-| `lighting` | 23 | 3 | 11 | 0.27 | 1.00 | 0.43 |
-| `no_walking` | 23 | 4 | 3 | 1.00 | 0.75 | 0.86 |
-| `poor_coverage` | 23 | 11 | 17 | 0.59 | 0.91 | 0.71 |
-| `too_few_views` | 23 | 4 | 5 | 0.60 | 0.75 | 0.67 |
-| `low_overlap` | 23 | 8 | 5 | 0.80 | 0.50 | 0.62 |
-| `mixed_cameras` | 23 | 0 | 0 | n/a | n/a | n/a |
-| `reflective` | 23 | 0 | 0 | n/a | n/a | n/a |
-| `low_texture` | 23 | 1 | 1 | 1.00 | 1.00 | 1.00 |
-| `noisy` | 23 | 3 | 3 | 1.00 | 1.00 | 1.00 |
+| `motion_blur` | 17 | 3 | 2 | 1.00 | 0.67 | 0.80 |
+| `lighting` | 17 | 3 | 6 | 0.50 | 1.00 | 0.67 |
+| `no_walking` | 17 | 1 | 1 | 1.00 | 1.00 | 1.00 |
+| `poor_coverage` | 17 | 16 | 14 | 1.00 | 0.88 | 0.93 |
+| `too_few_views` | 17 | 3 | 9 | 0.33 | 1.00 | 0.50 |
+| `low_overlap` | 17 | 5 | 6 | 0.83 | 1.00 | 0.91 |
+| `mixed_cameras` | 17 | 0 | 0 | n/a | n/a | n/a |
+| `reflective` | 17 | 0 | 0 | n/a | n/a | n/a |
+| `low_texture` | 17 | 1 | 1 | 1.00 | 1.00 | 1.00 |
+| `noisy` | 17 | 3 | 4 | 0.75 | 1.00 | 0.86 |
 
 ## Runtime
 
-- Measuring a capture: **1.22 s** (OpenCV checks + DINOv2, mean over everything labelled)
+- Measuring a capture: **2.17 s** (OpenCV checks + DINOv2, mean over everything labelled)
 - Scoring it with the model: **0.001 s** (onnx)
 - Budget: 60 s per capture on a laptop CPU
 
@@ -45,10 +45,12 @@ Precision and recall of the model's problem heads against the labels.
 
 ## Split
 
-- train scenes (5): `bedroom`, `garage`, `hallway`, `office`, `studio`
-- test scenes (2): `company_room`, `kitchen`
+- train scenes (6): `bedroom`, `garage`, `kitchen`, `lobby`, `office`, `studio`
+- test scenes (2): `company_room`, `hallway`
 
 ## Honest notes
 
+- Only 1 test capture(s) are of type `video`, too few for a separate correlation, so that column is blank.
 - Fewer than 3 test captures have a PSNR target, so the correlation is against damage severity (clean > light > medium > heavy), not PSNR.
+- `lightgbm_features` ranks the test captures as well as the model (0.76 vs 0.67). On this test set the trained model is not yet earning its place.
 - A test set of this size cannot separate methods whose intervals overlap; read the CI, not the point estimate.

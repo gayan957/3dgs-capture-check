@@ -7,6 +7,8 @@ CaptureCheck looks at a capture, either a **video** or an **image bundle** (a fo
 - a **quality score** that predicts how good the splat will be, and
 - a **diagnosis**: the problems found, with evidence.
 
+What that looks like (illustrative — these two captures are made up, to show the shape of the output; real output from the demo set is further down):
+
 ```
 $ capturecheck check ./office_scan.mp4
 
@@ -123,6 +125,23 @@ make export eval          # ONNX export, then the evaluation report
 
 Every step is also a `capturecheck` subcommand (`capturecheck label data`, `capturecheck train`, …); `make` is just a shorthand that uses the project's virtualenv.
 
+Checking one of those demo captures afterwards gives the real thing — this is
+`lobby_pivot`, a capture that pivots on the spot instead of walking round the room:
+
+```
+$ capturecheck -q check data/raw/lobby_pivot
+
+lobby_pivot  (video, 64 frames)
+Score: 0.56  (fair)   model: 2026-10-27_run01
+Problems:
+  • No walking     only 4% of frame pairs show real camera movement; the rest is
+                   rotation on the spot  (p=1.00)
+  • Poor coverage  the camera only got 37° round the subject (want at least 180°);
+                   never filmed from: front, eye level; back-right, eye level;
+                   back, eye level (+3 more)  (p=1.00)
+Time: 2 s (budget 60 s)
+```
+
 ## Labelling workflow
 | Step | Command | Output |
 |---|---|---|
@@ -185,38 +204,42 @@ The report calls it out when a baseline ranks the test captures as well as the m
 
 ### Results on the synthetic demo set
 
-> **These numbers say nothing about real reconstruction quality.** The demo set's `psnr` column is a geometric stand-in, not a 3DGS measurement, and 23 test captures cannot separate methods whose intervals overlap. They are here to show the pipeline runs end to end and reports honestly. Replace `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result of your own.
+> **These numbers say nothing about real reconstruction quality.** The demo set's `psnr` column is a geometric stand-in, only 2 of the 17 test captures carry one at all, and a test set that size cannot separate methods whose intervals overlap. They are here to show the pipeline runs end to end and reports honestly. Replace `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result of your own.
 
-Run `2026-10-27_run01`, 23 unseen test captures across 2 held-out scenes (one of them the test-only "company" scene):
+Run `2026-10-27_run01`, 17 unseen test captures across 2 held-out scenes (one of them the test-only "company" scene): 1 video and 16 image bundles. With fewer than 3 PSNR targets available, `capturecheck evaluate` falls back to ranking against damage severity (clean > light > medium > heavy) and says so in the report:
 
 | Method | Spearman vs target (95% CI) |
 |---|---|
-| Mean blur | 0.20 (−0.28 – 0.61) |
-| Frame count | 0.37 (−0.03 – 0.69) |
-| ORB match count (COLMAP stand-in) | 0.47 (0.04 – 0.81) |
-| LightGBM on the same features | 0.55 (0.14 – 0.84) |
-| **CaptureCheck** | **0.59 (0.17 – 0.86)** |
+| Mean blur | −0.15 (−0.67 – 0.34) |
+| Frame count | 0.31 (−0.19 – 0.73) |
+| ORB match count (COLMAP stand-in) | 0.51 (−0.02 – 0.90) |
+| **CaptureCheck** | **0.67 (0.31 – 0.89)** |
+| LightGBM on the same features | 0.76 (0.45 – 0.93) |
 
-**The model does not beat LightGBM here.** It edges ahead by 0.04 with intervals that almost entirely overlap, which on 23 captures means "indistinguishable". Both clearly beat frame count and mean blur. The target of ≥ 0.70 was not reached on this set; what that costs is unknown until the targets are real PSNR values rather than a stand-in.
+**LightGBM on the same features beats the model here**, 0.76 to 0.67. The intervals overlap almost entirely, so on 17 captures the honest reading is "indistinguishable" rather than "worse" — but the model is not earning its place on this set, and `reports/evaluation_report.md` prints that as a note rather than burying it. Both clearly beat frame count and mean blur. The target of ≥ 0.70 was not reached; what that costs is unknown until the targets are real PSNR values rather than a stand-in.
+
+Only one test capture is a video, too few for a separate per-format correlation, so that column of the report is blank.
 
 What *is* clearly working is the diagnosis:
 
 | Problem label | Precision | Recall | Positives in test |
 |---|---|---|---|
-| `motion_blur` | 1.00 | 1.00 | 3 |
-| `noisy` | 1.00 | 1.00 | 3 |
-| `no_walking` | 1.00 | 0.75 | 4 |
+| `no_walking` | 1.00 | 1.00 | 1 |
 | `low_texture` | 1.00 | 1.00 | 1 |
-| `low_overlap` | 0.80 | 0.50 | 8 |
-| `too_few_views` | 0.60 | 0.75 | 4 |
-| `poor_coverage` | 0.59 | 0.91 | 11 |
-| `lighting` | 0.27 | 1.00 | 3 |
+| `poor_coverage` | 1.00 | 0.88 | 16 |
+| `low_overlap` | 0.83 | 1.00 | 5 |
+| `noisy` | 0.75 | 1.00 | 3 |
+| `motion_blur` | 1.00 | 0.67 | 3 |
+| `lighting` | 0.50 | 1.00 | 3 |
+| `too_few_views` | 0.33 | 1.00 | 3 |
+
+`lighting` and `too_few_views` over-fire: both catch every positive but flag roughly twice as many captures as are labelled. On a set this small that is a handful of captures either way, and the head thresholds have not been tuned — deliberately, since tuning them on the test set is exactly what rule 3 forbids.
 
 `mixed_cameras` and `reflective` have no positives in this test set: the demo captures all come from one synthetic camera, and no shiny classifier has been trained. Those two columns are untested, not passing.
 
 A second caveat applies to all of them: these are measured against the **rules'** labels, not against human judgement. The thresholds in `configs/labeling.yaml` have not been calibrated against a real review yet, so a high precision here says the model reproduces the rules, not that the rules are right. [`reports/label_agreement.md`](reports/label_agreement.md) explains how to close that gap.
 
-Validation ranking accuracy across the five leave-one-scene-out folds: 0.84 (0.81–0.88). That it is well above the test figure is what a 23-capture test set looks like, not evidence of a leak — the split is by scene and the test scenes were never trained on.
+Validation ranking accuracy across the five leave-one-scene-out folds: 0.76 on average, but the folds run 0.48 (holding out `lobby`) to 0.86 (holding out `garage`). One fold near chance on eight scenes is what a demo set of this size looks like; it is also the number to watch when the set grows.
 
 Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
 
