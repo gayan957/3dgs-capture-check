@@ -22,6 +22,7 @@ from capturecheck.degrade import ops as degrade_ops
 from capturecheck.io.dataset import CaptureRef, list_captures
 from capturecheck.io.load import load_capture, save_frames
 from capturecheck.utils.logging import get_logger
+from capturecheck.utils.seed import stable_seed
 
 log = get_logger(__name__)
 
@@ -123,8 +124,10 @@ def make_variants_for_capture(
                 log.info("%s already exists; skipping (use --overwrite to redo)", vid)
                 continue
 
-            # A fresh, deterministic seed per (capture, op, strength).
-            seed = abs(hash((ref.capture_id, op, strength))) % (2**31) + cfg.degrade.seed
+            # A fresh, deterministic seed per (capture, op, strength). It has to
+            # be a digest, not hash(): hash() of a string is salted per process,
+            # so the "same" broken copy came out different on every run.
+            seed = stable_seed(ref.capture_id, op, strength) + cfg.degrade.seed
             rng = np.random.default_rng(seed)
 
             kwargs = dict(params)

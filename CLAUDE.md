@@ -45,6 +45,11 @@ transformer → a quality score.
 - Pandas reads a blank CSV cell as NaN, which is **truthy**: `value or default`
   silently yields the string `"nan"`. Use the `_text`/`_number` helpers in
   `model/data.py`. This one skipped the whole pretext stage once.
+- **Never seed anything from `hash()` of a string.** It is salted per process, so
+  `abs(hash(name)) % n` picks a new number every run. Use `stable_seed` in
+  `utils/seed.py`. This one made the demo captures and the broken copies
+  different on every run and moved the headline Spearman by 0.14; a single
+  process can never see it, so the test has to spawn one.
 
 ## Commands
 

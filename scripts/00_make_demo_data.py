@@ -31,6 +31,7 @@ import numpy as np
 from capturecheck.config import get_config
 from capturecheck.io.load import save_frames
 from capturecheck.utils.logging import get_logger, setup_logging
+from capturecheck.utils.seed import stable_seed
 
 log = get_logger(__name__)
 
@@ -326,7 +327,7 @@ def write_video(path: Path, frames: list[np.ndarray], fps: float = VIDEO_FPS) ->
 
 
 def render_capture(spec: dict, width: int, height: int, focal: float) -> list[np.ndarray]:
-    faces = build_scene(seed=abs(hash(spec["scene"])) % 10_000)
+    faces = build_scene(seed=stable_seed(spec["scene"], modulo=10_000))
     n = frame_count(spec["arc"])
     if spec.get("motion") == "pivot":
         poses, targets = pivot_poses(n, spec["arc"], spec["radius"], spec["height"])

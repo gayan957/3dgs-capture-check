@@ -2,15 +2,31 @@
 
 from __future__ import annotations
 
-import os
+import hashlib
 import random
 
 import numpy as np
 
 
+def stable_seed(*parts: object, modulo: int = 2**31) -> int:
+    """A seed derived from `parts` that is the same in every process.
+
+    `hash()` of a string is salted per interpreter (PYTHONHASHSEED), so
+    `abs(hash(name)) % n` picks a different number every run. Anything whose
+    output has to be reproducible — a rendered demo scene, a broken copy — must
+    derive its seed from a real digest instead.
+    """
+    digest = hashlib.blake2b(repr(parts).encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % modulo
+
+
 def set_seed(seed: int, deterministic_torch: bool = True) -> None:
-    """Seed every random source we use."""
-    os.environ["PYTHONHASHSEED"] = str(seed)
+    """Seed every random source we use.
+
+    This cannot make `hash()` of a string reproducible: PYTHONHASHSEED is read
+    once at interpreter start-up, so setting it here would be too late to have
+    any effect. Use `stable_seed` to derive a seed from text.
+    """
     random.seed(seed)
     np.random.seed(seed)
 
