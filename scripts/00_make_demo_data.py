@@ -255,16 +255,42 @@ def frame_count(arc_deg: float) -> int:
     return max(8, int(round(arc_deg / STEP_DEG)))
 
 
+#: Some scenes are written as videos so the demo exercises the video path --
+#: ffprobe/OpenCV, 2 fps sampling, optical flow -- and not only photo bundles.
 SCENES: tuple[dict, ...] = (
-    {"scene": "studio", "arc": 360.0, "radius": 4.2, "height": 1.6},
-    {"scene": "kitchen", "arc": 300.0, "radius": 4.0, "height": 1.4},
-    {"scene": "office", "arc": 240.0, "radius": 4.4, "height": 1.8},
-    {"scene": "hallway", "arc": 180.0, "radius": 3.8, "height": 1.3},
-    {"scene": "bedroom", "arc": 120.0, "radius": 4.0, "height": 1.5},
-    {"scene": "garage", "arc": 90.0, "radius": 3.6, "height": 1.2},
+    {"scene": "studio", "arc": 360.0, "radius": 4.2, "height": 1.6, "format": "images"},
+    {"scene": "kitchen", "arc": 300.0, "radius": 4.0, "height": 1.4, "format": "video"},
+    {"scene": "office", "arc": 240.0, "radius": 4.4, "height": 1.8, "format": "images"},
+    {"scene": "hallway", "arc": 180.0, "radius": 3.8, "height": 1.3, "format": "video"},
+    {"scene": "bedroom", "arc": 120.0, "radius": 4.0, "height": 1.5, "format": "images"},
+    {"scene": "garage", "arc": 90.0, "radius": 3.6, "height": 1.2, "format": "video"},
 )
 
-COMPANY_SCENE = {"scene": "company_room", "arc": 330.0, "radius": 4.1, "height": 1.5}
+COMPANY_SCENE = {
+    "scene": "company_room", "arc": 330.0, "radius": 4.1, "height": 1.5, "format": "images",
+}
+
+#: Frames per second of the written videos. Each rendered pose is held for
+#: ``VIDEO_FPS / sampling.fps`` frames, so sampling at 2 fps recovers exactly the
+#: poses that were rendered.
+VIDEO_FPS = 30.0
+SAMPLE_FPS = 2.0
+
+
+def write_video(path: Path, frames: list[np.ndarray], fps: float = VIDEO_FPS) -> Path:
+    """Write the rendered poses as a video, holding each one long enough that
+    sampling at 2 fps recovers them all."""
+    hold = max(1, int(round(fps / SAMPLE_FPS)))
+    height, width = frames[0].shape[:2]
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():  # pragma: no cover - depends on the OpenCV build
+        writer.release()
+        raise RuntimeError(f"OpenCV cannot write {path}; is this build missing mp4v?")
+    for frame in frames:
+        for _ in range(hold):
+            writer.write(frame)
+    writer.release()
+    return path
 
 
 def render_capture(spec: dict, width: int, height: int, focal: float) -> list[np.ndarray]:
@@ -298,7 +324,13 @@ def main() -> None:
         frames = render_capture(spec, args.width, args.height, focal)
 
         folder = args.out / capture_id
-        save_frames(frames, folder / "images", names=[f"{i:04d}.jpg" for i in range(len(frames))])
+        folder.mkdir(parents=True, exist_ok=True)
+        if spec.get("format") == "video":
+            write_video(folder / "video.mp4", frames)
+        else:
+            save_frames(
+                frames, folder / "images", names=[f"{i:04d}.jpg" for i in range(len(frames))]
+            )
         (folder / "scene.txt").write_text(f"{spec['scene']}\n", encoding="utf-8")
         if is_company:
             (folder / "source.txt").write_text("company\n", encoding="utf-8")
@@ -313,8 +345,8 @@ def main() -> None:
             }
         )
         log.info(
-            "%s: %d frames, arc %.0f deg, stand-in psnr %.1f%s",
-            capture_id, len(frames), spec["arc"], psnr,
+            "%s: %d frames as %s, arc %.0f deg, stand-in psnr %.1f%s",
+            capture_id, len(frames), spec.get("format", "images"), spec["arc"], psnr,
             " (company: test only)" if is_company else "",
         )
 

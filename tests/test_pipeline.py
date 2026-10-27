@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from capturecheck.io.load import load_capture
 from capturecheck.labeling import schema
 from capturecheck.labeling.pipeline import label_capture, measure_capture
@@ -150,3 +152,32 @@ def test_training_and_scoring_see_the_same_shapes(tmp_path, tiny_bundle, monkeyp
 
     assert np.allclose(rebuilt.global_vec[-24:], live.global_vec[-24:], equal_nan=True)
     assert isinstance(pair_df, pd.DataFrame)
+
+
+def test_video_and_bundle_of_the_same_scene_measure_alike(tmp_path, bundle_frames):
+    """The same content as a video and as photos must not land in different worlds."""
+    from conftest import write_photo, write_video
+
+    folder = tmp_path / "as_photos"
+    folder.mkdir()
+    for i, frame in enumerate(bundle_frames):
+        write_photo(folder / f"{i:04d}.jpg", frame, when=None)
+
+    # 2 fps sampling of a 30 fps video recovers one frame per held pose.
+    held = [f for frame in bundle_frames for f in [frame] * 15]
+    video = write_video(tmp_path / "as_video.mp4", held, fps=30.0)
+
+    photos = label_capture(folder, use_dino=False)
+    movie = label_capture(video, use_dino=False)
+
+    assert photos.video_row["input_type"] == "images"
+    assert movie.video_row["input_type"] == "video"
+    assert abs(photos.video_row["n_frames"] - movie.video_row["n_frames"]) <= 1
+
+    # The frame-level measurements should agree closely; JPEG vs mp4 explains the rest.
+    assert movie.video_row["blur_ratio"] == pytest.approx(
+        photos.video_row["blur_ratio"], abs=0.25
+    )
+    # Only the video gets a flow speed, and only photos carry EXIF columns.
+    assert movie.frame_rows["time_s"].notna().all()
+    assert photos.frame_rows["time_s"].isna().all()
