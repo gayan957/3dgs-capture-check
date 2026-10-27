@@ -65,6 +65,11 @@ def _needs_pairs(op: str) -> bool:
     return op in {"drop_sector", "rotation_only"}
 
 
+def _needs_features(op: str) -> bool:
+    """`drop_gap` measures the junctions it creates, so it needs ORB per photo."""
+    return op == "drop_gap"
+
+
 def make_variants_for_capture(
     ref: CaptureRef,
     out_root: str | Path | None = None,
@@ -98,8 +103,10 @@ def make_variants_for_capture(
     # Pose work is shared by every op that needs it, and only done when needed.
     pairs = None
     path = None
-    if any(_needs_pairs(op) for op in usable):
+    features = None
+    if any(_needs_pairs(op) or _needs_features(op) for op in usable):
         features = orb_frames(capture.frames)
+    if any(_needs_pairs(op) for op in usable):
         pairs = motion_pairs(
             capture.frames,
             features=features,
@@ -136,6 +143,8 @@ def make_variants_for_capture(
                 kwargs["path"] = path
             if op == "rotation_only":
                 kwargs["pairs"] = pairs
+            if _needs_features(op):
+                kwargs["features"] = features
 
             function = degrade_ops.OPS[op]
             result = function(capture.frames, **kwargs)

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+from pathlib import Path
 
 import numpy as np
 
@@ -95,13 +98,109 @@ def test_drop_sector_with_a_path_removes_one_direction():
 
 def test_drop_gap_removes_neighbouring_photos(bundle_frames):
     names = [f"IMG_{i:04d}.jpg" for i in range(len(bundle_frames))]
-    result = ops.drop_gap(bundle_frames, n=4, names=names)
+    result = ops.drop_gap(bundle_frames, share=0.4, names=names)
     assert result.labels["low_overlap"] == 1
-    assert len(result.labels["photos"]) == 4
-    assert result.n == len(bundle_frames) - 4
+    assert result.n == len(bundle_frames) - len(result.labels["photos"])
     # The removed names are gone and the rest keep their order.
     assert not set(result.labels["photos"]) & set(result.names)
     assert result.names == sorted(result.names)
+
+
+def test_drop_gap_makes_enough_gaps_to_earn_the_label(bundle_frames):
+    """One gap is not low overlap: the rule needs a *share* of bad pairs.
+
+    `low_overlap` fires on `overlap_low_ratio > 0.2`, so a copy with a single
+    gap in a long bundle carries a label that is not true of it. The op has to
+    cut in enough places to clear the rule's own threshold.
+    """
+    from capturecheck.config import get_config
+
+    rule_ratio = get_config().labeling.overlap.low_overlap_ratio
+    names = [f"IMG_{i:04d}.jpg" for i in range(len(bundle_frames))]
+
+    result = ops.drop_gap(bundle_frames, share=0.4, names=names)
+    assert result.labels["gaps"] > 1, "a single gap cannot make this label true"
+    assert result.labels["overlap_low_ratio_expected"] > rule_ratio
+
+
+def test_drop_gap_strengths_are_ordered(bundle_frames):
+    names = [f"IMG_{i:04d}.jpg" for i in range(len(bundle_frames))]
+    ratios = [
+        ops.drop_gap(bundle_frames, share=share, names=names)
+        .labels["overlap_low_ratio_expected"]
+        for share in (0.25, 0.4, 0.6)
+    ]
+    assert ratios == sorted(ratios)
+
+
+def test_drop_gap_refuses_a_bundle_too_short_to_have_the_defect():
+    """Rule 10: no copy rather than a copy with a false label."""
+    frames = [np.full((32, 32, 3), 120, np.uint8) for _ in range(3)]
+    result = ops.drop_gap(frames, share=0.6, photos_per_gap=2, names=None)
+    assert result.labels["low_overlap"] == 0
+    assert "reason" in result.labels
+    assert not ops.defect_created(result.labels)
+
+
+def test_drop_gap_refuses_a_bundle_whose_photos_stay_matched(bundle_frames):
+    """`bundle_frames` pans 9 px a photo; no cut can make its photos strangers."""
+    from capturecheck.checks.motion import orb_frames
+
+    names = [f"IMG_{i:04d}.jpg" for i in range(len(bundle_frames))]
+    result = ops.drop_gap(
+        bundle_frames, share=0.4, names=names, features=orb_frames(bundle_frames)
+    )
+    assert result.labels["low_overlap"] == 0
+    assert "reason" in result.labels
+    assert result.n == len(bundle_frames)
+
+
+def test_drop_gap_refuses_when_no_gap_breaks_a_junction(bundle_frames):
+    """A junction that still matches is not a gap, however wide the cut."""
+
+    class AlwaysMatches:
+        """ORB stand-in whose photos always overlap: nothing can break them."""
+
+        n = 100
+        shape = (64, 64)
+
+    names = [f"IMG_{i:04d}.jpg" for i in range(len(bundle_frames))]
+    features = [AlwaysMatches() for _ in bundle_frames]
+    # overlap() on these would be 1.0, so every candidate junction survives.
+    import capturecheck.degrade.ops as ops_module
+
+    original = ops_module.overlap
+    ops_module.overlap = lambda a, b: 1.0
+    try:
+        result = ops.drop_gap(bundle_frames, share=0.4, names=names, features=features)
+    finally:
+        ops_module.overlap = original
+
+    assert result.labels["low_overlap"] == 0
+    assert "reason" in result.labels
+    assert result.n == len(bundle_frames), "a refused op must not change the capture"
+
+
+def test_drop_gap_junctions_really_fall_below_the_threshold(wide_pan_frames):
+    """With ORB features in hand, every gap it keeps is a measured gap.
+
+    This is the assertion rule 10 exists for: relabel the copy from its pixels
+    and the measurement must agree with the label it was written with.
+    """
+    from capturecheck.checks.motion import orb_frames, overlap_series
+    from capturecheck.config import get_config
+
+    cfg = get_config().labeling.overlap
+    names = [f"IMG_{i:04d}.jpg" for i in range(len(wide_pan_frames))]
+    features = orb_frames(wide_pan_frames)
+    result = ops.drop_gap(wide_pan_frames, share=0.4, names=names, features=features)
+    assert result.labels["low_overlap"] == 1, result.labels.get("reason")
+
+    measured = np.array(overlap_series(orb_frames(result.frames)), dtype=float)
+    got = float((measured < cfg.min_overlap).mean())
+    assert got > cfg.low_overlap_ratio, (
+        f"copy labelled low_overlap measures {got:.3f}, under the rule's {cfg.low_overlap_ratio}"
+    )
 
 
 def test_every_op_keeps_names_and_times_aligned(bundle_frames):
@@ -123,14 +222,15 @@ def test_make_all_writes_copies_with_exact_labels(tmp_path, tiny_capture_dir, ti
     variants = make_all(raw_dir=raw, out_dir=out, strengths=["medium"])
     by_id = {v.capture_id: v for v in variants}
 
-    # The 20-photo bundle supports every op, drop_gap included.
+    # This bundle pans only 9 px a photo, so its photos stay matched however wide
+    # the cut: it cannot have low overlap, and no copy claims it does (rule 10).
     bundle_ops = {v.op for v in variants if v.source_id == "kitchen_photos"}
-    assert bundle_ops == set(ops.OPS)
+    assert bundle_ops == set(ops.OPS) - {"drop_gap"}
+    assert variant_id("kitchen_photos", "drop_gap", "medium") not in by_id
     # drop_gap is bundle-only, and the 4-frame test video is too short to thin out.
     video_ops = {v.op for v in variants if v.source_id == "kitchen_video"}
     assert "drop_gap" not in video_ops
     assert video_ops.issubset(set(ops.OPS) - {"drop_gap"})
-    assert variant_id("kitchen_photos", "drop_gap", "medium") in by_id
 
     blur = by_id[variant_id("kitchen_photos", "blur", "medium")]
     assert blur.scene_id == "kitchen_photos"
@@ -149,6 +249,24 @@ def test_make_all_writes_copies_with_exact_labels(tmp_path, tiny_capture_dir, ti
     # The originals were not touched.
     assert (tiny_capture_dir / "video.mp4").is_file()
     assert len(list(tiny_bundle.glob("*.jpg"))) == 20
+
+
+def test_make_all_writes_a_drop_gap_copy_when_the_bundle_can_have_one(
+    tmp_path, wide_pan_bundle
+):
+    """The other side of rule 10: a bundle that *can* have the defect gets one."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "hallway_photos").symlink_to(wide_pan_bundle)
+
+    variants = make_all(raw_dir=raw, out_dir=tmp_path / "degraded", strengths=["medium"])
+    by_id = {v.capture_id: v for v in variants}
+    vid = variant_id("hallway_photos", "drop_gap", "medium")
+    assert vid in by_id, "a bundle with real parallax should support drop_gap"
+
+    payload = json.loads((by_id[vid].path / "labels.json").read_text())
+    assert payload["low_overlap"] == 1
+    assert payload["gaps"] > 1, "one gap is not low overlap"
 
 
 def test_make_all_skips_company_captures(tmp_path, tiny_bundle):
@@ -224,3 +342,41 @@ def test_make_all_skips_variants_whose_defect_failed(tmp_path, tiny_bundle, capl
         assert variant.labels.get("no_walking") == 1
     if not variants:
         assert "could not create its defect" in caplog.text
+
+
+def test_the_same_broken_copy_twice_is_byte_identical(tmp_path, tiny_bundle):
+    """Two `degrade` runs in separate processes must produce the same pixels.
+
+    The copies are training data, so a copy that differs between runs means the
+    model trained on something nobody can reproduce. Separate processes are the
+    whole point: the seed used to come from `hash()` of the capture id, which is
+    salted per interpreter, so a single process could never see the bug.
+    """
+    import hashlib
+    import subprocess
+    import sys
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    shutil.copytree(tiny_bundle, raw / "kitchen_photos")
+    (raw / "kitchen_photos" / "scene.txt").write_text("kitchen\n")
+
+    def run(out: Path, hash_seed: str) -> str:
+        subprocess.run(
+            [
+                sys.executable, "-m", "capturecheck.cli", "-q", "degrade",
+                "--raw", str(raw), "--out", str(out), "--op", "noise",
+            ],
+            check=True,
+            capture_output=True,
+            env={**os.environ, "PYTHONHASHSEED": hash_seed},
+        )
+        digest = hashlib.sha1()
+        for photo in sorted(out.rglob("*.jpg")):
+            digest.update(photo.read_bytes())
+        return digest.hexdigest()
+
+    first = run(tmp_path / "a", "0")
+    second = run(tmp_path / "b", "12345")
+    assert first == second
+    assert first != hashlib.sha1().hexdigest(), "no copies were written at all"

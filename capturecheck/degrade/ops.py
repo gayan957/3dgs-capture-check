@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from capturecheck.checks.coverage import CameraPath
+from capturecheck.checks.motion import overlap
 
 #: Share of the kept pairs that must read "turned" before ``rotation_only`` may
 #: claim the capture shows no walking.
@@ -306,36 +307,142 @@ def noise(
 
 def drop_gap(
     frames: list[np.ndarray],
-    n: int = 5,
+    share: float = 0.4,
+    photos_per_gap: int = 2,
+    min_overlap: float | None = None,
+    max_photos_per_gap: int = 6,
+    features: list | None = None,
     names: list[str] | None = None,
     times: list[float | None] | None = None,
     rng: np.random.Generator | None = None,
 ) -> DegradeResult:
-    """Remove ``n`` neighbouring photos: the classic "I stopped shooting here" gap.
+    """Punch gaps into a bundle until `low_overlap` is actually true of it.
 
     Image bundles only. A video cannot have this defect at 2 fps sampling without
     also losing coverage, which :func:`drop_sector` already covers.
+
+    One gap is not this defect. The rule reads `low_overlap` off
+    `overlap_low_ratio`, the *share* of neighbouring pairs that match too
+    little, so a single gap in a 144-photo orbit moves it to 0.007 against a
+    threshold of 0.2, and the copy carries a label that is not true of it. This
+    cuts in enough separate places for the share of broken junctions to reach
+    `share`, which the config keeps above the rule's threshold.
+
+    Given `features` (ORB per photo, which `make_variants` already has), every
+    junction is *measured*: the gap widens until the two photos left facing each
+    other really do match below `min_overlap`, up to `max_photos_per_gap`. Gaps
+    that will not break are dropped rather than counted, because a junction that
+    still overlaps is not a gap. Without `features` the cut falls back to
+    `photos_per_gap` photos and the share is a geometric estimate.
+
+    A bundle too short to hold the gaps, or one whose photos stay matched
+    however wide the cut, cannot have the defect, so it returns
+    ``low_overlap: 0`` and a ``reason`` instead of a mislabelled copy.
     """
     rng = rng or np.random.default_rng(0)
     names, times = _names_times(frames, names, times)
     total = len(frames)
-    count = int(np.clip(n, 0, max(0, total - 3)))
-    if total == 0 or count <= 0:
+    per_gap = max(1, int(photos_per_gap))
+    widest = max(per_gap, int(max_photos_per_gap))
+    target = float(np.clip(share, 0.0, 1.0))
+
+    from capturecheck.config import get_config
+
+    overlap_cfg = get_config().labeling.overlap
+    if min_overlap is None:
+        min_overlap = overlap_cfg.min_overlap
+    # The share the rule itself needs before it calls this low overlap.
+    rule_ratio = overlap_cfg.low_overlap_ratio
+
+    def refuse(reason: str) -> DegradeResult:
         return DegradeResult(
-            [f.copy() for f in frames], names, times, {"low_overlap": 0, "photos": []}
+            [f.copy() for f in frames], names, times,
+            {"low_overlap": 0, "photos": [], "reason": reason},
         )
-    # Keep at least one photo on each side of the gap.
-    start = int(rng.integers(1, max(2, total - count)))
-    removed = list(range(start, start + count))
-    kept = [i for i in range(total) if i not in set(removed)]
+
+    # Each gap leaves one junction below the threshold, so after G gaps the ratio
+    # is G / (kept - 1) = G / (total - G*per_gap - 1). The smallest G that reaches
+    # `target` is:
+    wanted = (
+        int(np.ceil(target * (total - 1) / (1.0 + target * per_gap))) if total > 1 else 0
+    )
+    # Every gap needs a kept photo on each side: G gaps need G*per_gap removed and
+    # G + 1 kept.
+    room = (total - 1) // (per_gap + 1)
+    gaps = min(wanted, room)
+    if gaps < 1 or target <= 0:
+        return refuse(
+            f"{total} photos have room for {room} gaps of {per_gap}; "
+            f"a share of {target:.2f} of pairs needs {wanted}"
+        )
+
+    def breaks(left: int, right: int) -> bool:
+        """Do the two photos left facing each other match too little?"""
+        if features is None or not (0 <= left < len(features) and 0 <= right < len(features)):
+            return True  # unverified: the geometric estimate stands in
+        return overlap(features[left], features[right]) < float(min_overlap)
+
+    # Spread the cuts over the bundle, jittered inside each slot so copies are not
+    # all cut on the same grid, and widen each one until its junction really goes.
+    stride = total / float(gaps)
+    removed: list[int] = []
+    taken: set[int] = set()
+    unbroken = 0
+    for g in range(gaps):
+        slot_start = int(g * stride) + 1
+        slot_end = min(int((g + 1) * stride), total - 1) - per_gap
+        if slot_end < slot_start:
+            continue
+        begin = (
+            int(rng.integers(slot_start, slot_end + 1)) if slot_end > slot_start else slot_start
+        )
+        width = next(
+            (
+                w
+                for w in range(per_gap, widest + 1)
+                if begin + w <= total - 1 and breaks(begin - 1, begin + w)
+            ),
+            None,
+        )
+        if width is None:
+            unbroken += 1
+            continue
+        run = list(range(begin, begin + width))
+        # Keep a photo between this gap and the last, or the two merge into one
+        # wider gap and break a single junction instead of two.
+        if any(i in taken or i - 1 in taken for i in run):
+            continue
+        taken.update(run)
+        removed.extend(run)
+
+    if not removed:
+        return refuse(
+            f"no gap in these {total} photos drops a junction below {float(min_overlap):.2f} "
+            f"overlap, even {widest} photos wide"
+        )
+
+    removed_set = set(removed)
+    kept = [i for i in range(total) if i not in removed_set]
+    n_gaps = len(removed) - sum(1 for i in removed if i - 1 in removed_set)
+    achieved = n_gaps / float(max(1, len(kept) - 1))
+    if features is not None and achieved <= rule_ratio:
+        return refuse(
+            f"only {n_gaps} of {gaps} gaps broke a junction, a share of {achieved:.3f}; "
+            "that is not low overlap"
+        )
+
+    first = min(removed)
     return DegradeResult(
         [frames[i].copy() for i in kept],
         [names[i] for i in kept],
         [times[i] for i in kept],
         {
             "low_overlap": 1,
-            "photos": [names[i] for i in removed],
-            "gap_after": names[removed[0] - 1] if removed[0] > 0 else names[0],
+            "photos": [names[i] for i in sorted(removed)],
+            "gaps": n_gaps,
+            "overlap_low_ratio_expected": round(achieved, 4),
+            "unbroken_gaps": unbroken,
+            "gap_after": names[first - 1] if first > 0 else names[0],
         },
     )
 

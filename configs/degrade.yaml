@@ -36,13 +36,15 @@ ops:
     medium: { sigma: 14, jpeg_quality: 65 }
     heavy:  { sigma: 25, jpeg_quality: 50 }
   drop_gap:                      # image bundles only
-    # One gap of n photos is a small share of the neighbour pairs in a long
-    # capture, so its effect on overlap_low_ratio stays modest however large n
-    # is. Scale these up for big bundles, or run the op more than once, if you
-    # need low_overlap to be clearly separable.
-    light:  { n: 2 }
-    medium: { n: 5 }
-    heavy:  { n: 10 }
+    # `share` is the share of neighbouring pairs the copy should leave below the
+    # overlap threshold, and the op makes as many separate gaps as that takes.
+    # All three sit above labeling.yaml's low_overlap_ratio of 0.2, so the label
+    # is true of the copy; one gap on its own would score about 0.007 and would
+    # not be. `photos_per_gap` is 2 because a single missing photo leaves the
+    # junction at roughly 0.31 against a 0.3 threshold, too close to rely on.
+    light:  { share: 0.25, photos_per_gap: 2 }
+    medium: { share: 0.40, photos_per_gap: 2 }
+    heavy:  { share: 0.60, photos_per_gap: 2 }
 
 output:
   jpeg_quality: 92               # quality used when writing the degraded bundle

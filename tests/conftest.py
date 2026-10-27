@@ -187,6 +187,32 @@ def bundle_frames() -> list[np.ndarray]:
 
 
 @pytest.fixture(scope="session")
+def wide_pan_frames() -> list[np.ndarray]:
+    """A bundle that moves enough to *be able* to have a gap.
+
+    `bundle_frames` pans 9 px across a 320 px frame, so neighbouring photos
+    share about 0.78 and even a 6-photo cut still leaves 0.66 — that bundle
+    cannot have low overlap, and `drop_gap` rightly refuses it. 30 px a photo
+    drops a 6-wide cut to about 0.20, under the 0.3 threshold.
+    """
+    return pan_frames(24, step=30)
+
+
+@pytest.fixture(scope="session")
+def wide_pan_bundle(tmp_path_factory, wide_pan_frames) -> Path:
+    """`wide_pan_frames` written out as a photo bundle."""
+    folder = tmp_path_factory.mktemp("wide_bundle") / "hallway_photos"
+    folder.mkdir()
+    for i, frame in enumerate(wide_pan_frames):
+        write_photo(
+            folder / f"IMG_{i:04d}.jpg",
+            frame,
+            when=f"2026:01:02 11:{i * 2 // 60:02d}:{i * 2 % 60:02d}",
+        )
+    return folder
+
+
+@pytest.fixture(scope="session")
 def tiny_bundle(tmp_path_factory, bundle_frames) -> Path:
     """20 JPEGs of the same scene, with EXIF capture times two seconds apart."""
     folder = tmp_path_factory.mktemp("bundle") / "kitchen_photos"
