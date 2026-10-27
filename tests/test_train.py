@@ -121,9 +121,32 @@ def test_both_stages_run_and_are_logged(tmp_path, wired):
 def test_stage_a_can_be_skipped(tmp_path, wired):
     import pandas as pd
 
-    train_mod.train_run(models_dir=tmp_path, run_id="b_only", run_stage_a=False)
+    result = train_mod.train_run(models_dir=tmp_path, run_id="b_only", run_stage_a=False)
     log = pd.read_csv(tmp_path / "b_only" / "train_log.csv")
     assert set(log["stage"]) == {"B"}
+    assert result.metrics["stage_a_ran"] is False
+
+
+def test_metrics_record_whether_stage_a_really_ran(tmp_path, wired):
+    result = train_mod.train_run(models_dir=tmp_path, run_id="staged2")
+    assert result.metrics["stage_a_requested"] is True
+    assert result.metrics["stage_a_ran"] is True
+    assert result.metrics["n_clean_captures"] == 2
+
+
+def test_stage_a_is_skipped_loudly_when_nothing_is_clean(tmp_path, monkeypatch, wired, caplog):
+    """Everything marked degraded means the pretext stage has nothing to damage."""
+    import logging
+
+    for sample in wired:
+        sample.source = "degraded"
+        sample.degrade_type = "blur"
+
+    with caplog.at_level(logging.ERROR):
+        result = train_mod.train_run(models_dir=tmp_path, run_id="no_clean")
+    assert result.metrics["stage_a_ran"] is False
+    assert result.metrics["n_clean_captures"] == 0
+    assert "no clean capture was found" in caplog.text
 
 
 def test_the_trained_run_can_score_a_capture(tmp_path, wired):

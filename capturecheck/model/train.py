@@ -342,7 +342,18 @@ def train_run(
     # Statistics come from the train side only: the test scenes must stay unseen.
     stats = FeatureStats.fit(train_set)
     clean = clean_samples(train_set)
-    log.info("%d clean captures available for stage A", len(clean))
+    if run_stage_a and not clean:
+        # Stage A damages clean captures, so with none it silently does nothing.
+        # That is worth shouting about: it is the stage that keeps a model this
+        # size from memorising a few hundred captures.
+        log.error(
+            "stage A was asked for but no clean capture was found among the %d train "
+            "captures: every one is marked as degraded. The pretext stage will be "
+            "skipped. Check the `source` and `degrade_type` columns of video_labels.csv.",
+            len(train_set),
+        )
+    else:
+        log.info("%d clean captures available for stage A", len(clean))
 
     seed_list = seeds or cfg.train.seed
     scenes_in_order = sorted({s.scene_id for s in train_set})
@@ -368,7 +379,7 @@ def train_run(
             log.info("model has %d parameters", count_parameters(model))
 
         history: list[dict] = []
-        if run_stage_a:
+        if run_stage_a and clean:
             fold_clean = [s for s in clean if s.scene_id != val_scene] or clean
             train_stage_a(model, fold_clean, stats, cfg, device, int(seed), history)
 
@@ -456,7 +467,9 @@ def train_run(
         },
         "val_scene_per_seed": {str(r.seed): r.val_scene for r in results},
         "device": device,
-        "stage_a": run_stage_a,
+        "stage_a_requested": run_stage_a,
+        "stage_a_ran": bool(run_stage_a and clean),
+        "n_clean_captures": len(clean),
     }
     (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     log.info("run written to %s", run_dir)

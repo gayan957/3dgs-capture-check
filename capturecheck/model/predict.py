@@ -16,7 +16,7 @@ import torch
 from capturecheck.config import Config, get_config
 from capturecheck.labeling import schema
 from capturecheck.model.batching import collate
-from capturecheck.model.data import CaptureSample, FeatureStats, build_sample
+from capturecheck.model.data import CaptureSample, FeatureStats, _text, build_sample
 from capturecheck.model.net import CaptureQualityNet
 from capturecheck.utils.logging import get_logger
 
@@ -187,7 +187,7 @@ def sample_from_result(result, cfg: Config | None = None) -> CaptureSample:
         grid = measurements.coverage.grid if measurements.coverage is not None else None
         return build_sample(
             capture_id=result.capture_id,
-            scene_id=str(row.get("scene_id") or result.capture_id),
+            scene_id=_text(row.get("scene_id"), result.capture_id),
             frame_df=result.frame_rows,
             pair_df=measurements.pair_df,
             video_row=row,
@@ -203,7 +203,7 @@ def sample_from_result(result, cfg: Config | None = None) -> CaptureSample:
 
     return build_sample(
         capture_id=result.capture_id,
-        scene_id=str(row.get("scene_id") or result.capture_id),
+        scene_id=_text(row.get("scene_id"), result.capture_id),
         frame_df=result.frame_rows,
         pair_df=pd.DataFrame(),
         video_row=row,

@@ -18,6 +18,7 @@ sees features, so feature-level damage is the same problem to learn from.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -208,6 +209,31 @@ class FeatureStats:
         )
 
 
+def _text(value, default: str = "") -> str:
+    """A string from a CSV cell, treating blanks and NaN as absent.
+
+    Pandas reads an empty cell as ``float('nan')``, which is *truthy*, so the
+    obvious ``str(value or default)`` silently produces the string ``"nan"``.
+    That is how a clean capture came to be filed under degrade type "nan" and
+    the pretext stage found nothing to damage.
+    """
+    if value is None:
+        return default
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    text = str(value).strip()
+    return default if not text or text.lower() == "nan" else text
+
+
+def _number(value, default: float = 0.0) -> float:
+    """A float from a CSV cell, with the same blank/NaN handling."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if math.isnan(number) else number
+
+
 def _column(df: pd.DataFrame, name: str, n: int) -> np.ndarray:
     if name in df.columns:
         return pd.to_numeric(df[name], errors="coerce").to_numpy(dtype=np.float64)
@@ -302,7 +328,7 @@ def build_sample(
     global_vec = np.concatenate([np.asarray(values, dtype=np.float64), grid]).astype(np.float32)
 
     problems = np.array(
-        [float(video_row.get(name, 0) or 0) for name in schema.PROBLEM_LABELS], dtype=np.float32
+        [_number(video_row.get(name, 0)) for name in schema.PROBLEM_LABELS], dtype=np.float32
     )
     psnr = video_row.get("psnr")
     try:
@@ -318,10 +344,10 @@ def build_sample(
         global_vec=global_vec,
         problems=problems,
         psnr=psnr,
-        source=str(video_row.get("source") or "real"),
-        degrade_type=str(video_row.get("degrade_type") or "none"),
-        degrade_strength=str(video_row.get("degrade_strength") or ""),
-        input_type=str(video_row.get("input_type") or "video"),
+        source=_text(video_row.get("source"), "real"),
+        degrade_type=_text(video_row.get("degrade_type"), "none"),
+        degrade_strength=_text(video_row.get("degrade_strength")),
+        input_type=_text(video_row.get("input_type"), "video"),
     )
 
 
@@ -355,8 +381,8 @@ def samples_from_labels(
     out: list[CaptureSample] = []
     missing_pairs: list[str] = []
     for _, row in video_df.iterrows():
-        capture_id = str(row["capture_id"])
-        scene_id = str(row.get("scene_id") or capture_id)
+        capture_id = _text(row["capture_id"])
+        scene_id = _text(row.get("scene_id"), capture_id)
         if wanted is not None and scene_id not in wanted:
             continue
 
@@ -572,3 +598,78 @@ class FeatureDegrader:
 def clean_samples(samples: list[CaptureSample]) -> list[CaptureSample]:
     """The untouched captures: the only safe starting point for stage A."""
     return [s for s in samples if s.source == "real" and s.degrade_type in ("none", "")]
+
+
+class CaptureDataset:
+    """The measured captures the model trains on.
+
+    A plain in-memory collection rather than a ``torch.utils.data.Dataset``: a
+    few hundred captures fit comfortably, batching has to be scene-aware for the
+    ranking loss to have anything to learn from (see
+    :func:`capturecheck.model.batching.scene_batches`), and a DataLoader's
+    workers would only add process overhead and macOS fork warnings.
+    """
+
+    def __init__(self, samples: list[CaptureSample]) -> None:
+        self.samples = list(samples)
+
+    # ---------------------------------------------------------------- build
+    @classmethod
+    def from_labels(
+        cls,
+        labels_dir: str | Path | None = None,
+        features_dir: str | Path | None = None,
+        cfg: Config | None = None,
+        scenes: list[str] | None = None,
+    ) -> CaptureDataset:
+        """Load from the label CSVs plus the cached features."""
+        return cls(samples_from_labels(labels_dir, features_dir, cfg, scenes))
+
+    # ----------------------------------------------------------- collection
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, index: int) -> CaptureSample:
+        return self.samples[index]
+
+    def __iter__(self):
+        return iter(self.samples)
+
+    # ------------------------------------------------------------- subsets
+    @property
+    def scenes(self) -> list[str]:
+        return sorted({s.scene_id for s in self.samples})
+
+    def for_scenes(self, scenes: list[str] | set[str]) -> CaptureDataset:
+        """The captures belonging to the given scenes, as a dataset of their own."""
+        wanted = set(scenes)
+        return CaptureDataset([s for s in self.samples if s.scene_id in wanted])
+
+    def excluding_scene(self, scene_id: str) -> CaptureDataset:
+        return CaptureDataset([s for s in self.samples if s.scene_id != scene_id])
+
+    def clean(self) -> list[CaptureSample]:
+        """The untouched captures, for generating stage A's damaged copies."""
+        return clean_samples(self.samples)
+
+    def with_psnr(self) -> list[CaptureSample]:
+        return [s for s in self.samples if s.has_psnr]
+
+    # --------------------------------------------------------------- stats
+    def fit_stats(self) -> FeatureStats:
+        """Normalisation fitted on *these* captures only."""
+        return FeatureStats.fit(self.samples)
+
+    def problem_matrix(self) -> np.ndarray:
+        """(N, K) matrix of problem labels, for the class weights."""
+        if not self.samples:
+            return np.zeros((0, schema.N_PROBLEMS), dtype=np.float32)
+        return np.stack([s.problems for s in self.samples])
+
+    def summary(self) -> str:
+        videos = sum(1 for s in self.samples if s.input_type == "video")
+        return (
+            f"{len(self.samples)} captures ({videos} video, {len(self.samples) - videos} "
+            f"image bundles) across {len(self.scenes)} scenes, "
+            f"{len(self.with_psnr())} with a PSNR target"
+        )
