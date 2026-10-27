@@ -170,7 +170,7 @@ def probe(path: str | Path) -> VideoInfo:
     """Width, height, fps, duration and codec. Uses ffprobe, falls back to OpenCV."""
     path = Path(path)
     if not path.is_file():
-        raise FileNotFoundError(path)
+        raise FileNotFoundError(f"no such video file: {path}")
 
     info = _probe_with_ffprobe(path)
     if info is None or not info.fps or not info.width:

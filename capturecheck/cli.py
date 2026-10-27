@@ -102,7 +102,16 @@ def check(
     from capturecheck.labeling.pipeline import label_capture
 
     cfg = get_config()
-    result = label_capture(path, use_dino=not no_dino, keep_measurements=True)
+    # A path that is not a capture is a user mistake, not a crash: the loaders
+    # already say exactly what they could not find, so print that and stop.
+    try:
+        result = label_capture(path, use_dino=not no_dino, keep_measurements=True)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]Cannot read this capture:[/red] {exc}")
+        console.print(
+            "[dim]Expected a video file, a folder of photos, or a .zip of photos.[/dim]"
+        )
+        raise typer.Exit(code=1) from exc
     row = result.video_row
     evidence = result.evidence
 

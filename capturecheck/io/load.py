@@ -101,7 +101,7 @@ def detect_input_type(path: str | Path) -> str:
         if zips:
             return IMAGES
         raise ValueError(f"no video and no photos found in {path}")
-    raise FileNotFoundError(path)
+    raise FileNotFoundError(f"no such file or folder: {path}")
 
 
 def find_capture_file(folder: str | Path) -> Path | None:

@@ -93,6 +93,28 @@ def test_label_on_an_empty_folder_fails_clearly(tmp_path):
     assert "No captures found" in result.stdout
 
 
+def test_check_on_a_zip_with_no_photos_fails_clearly(tmp_path):
+    """A zip that holds no photos is a user mistake, not a traceback."""
+    import zipfile
+
+    empty = tmp_path / "empty.zip"
+    with zipfile.ZipFile(empty, "w") as zf:
+        zf.writestr("notes.txt", "no photos in here")
+
+    result = runner.invoke(app, ["check", str(empty), "--no-dino", "--no-score"])
+    assert result.exit_code == 1
+    assert "Cannot read" in result.stdout
+    assert "no photos" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_check_on_a_missing_path_fails_clearly(tmp_path):
+    result = runner.invoke(app, ["check", str(tmp_path / "nope.mp4"), "--no-dino", "--no-score"])
+    assert result.exit_code == 1
+    assert "Cannot read" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
 def test_degrade_writes_copies(tmp_path, tiny_bundle):
     raw = tmp_path / "raw"
     raw.mkdir()
