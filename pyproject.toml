@@ -31,7 +31,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-model = ["torch>=2.2", "torchvision>=0.17", "lightgbm>=4.3", "onnx>=1.16", "onnxruntime>=1.17"]
+model = [
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "lightgbm>=4.3",
+  "onnx>=1.16",
+  "onnxruntime>=1.17",
+  "onnxscript>=0.1",
+]
 review = ["streamlit>=1.33"]
 dev = [
   "pytest>=8.0",
@@ -41,6 +48,7 @@ dev = [
   "lightgbm>=4.3",
   "onnx>=1.16",
   "onnxruntime>=1.17",
+  "onnxscript>=0.1",
   "streamlit>=1.33",
 ]
 
@@ -56,6 +64,7 @@ capturecheck = ["../configs/*.yaml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["slow: takes more than a few seconds (ONNX export, full captures)"]
 
 [tool.ruff]
 line-length = 100

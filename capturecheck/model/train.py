@@ -93,7 +93,7 @@ def ranking_accuracy(scores: torch.Tensor, better: torch.Tensor, worse: torch.Te
 # --------------------------------------------------------------------------- #
 # Stage A
 # --------------------------------------------------------------------------- #
-def run_stage_a(
+def train_stage_a(
     model: CaptureQualityNet,
     clean: list[CaptureSample],
     stats: FeatureStats,
@@ -170,7 +170,7 @@ def run_stage_a(
 # --------------------------------------------------------------------------- #
 # Stage B
 # --------------------------------------------------------------------------- #
-def run_stage_b(
+def train_stage_b(
     model: CaptureQualityNet,
     train_samples: list[CaptureSample],
     val_samples: list[CaptureSample],
@@ -310,15 +310,11 @@ def train_run(
     config_path: str | Path | None = None,
     run_id: str | None = None,
     seeds: list[int] | None = None,
-    run_stage_a_flag: bool = True,
-    run_stage_a: bool | None = None,
+    run_stage_a: bool = True,
     labels_dir: str | Path | None = None,
     models_dir: str | Path | None = None,
 ) -> TrainResult:
     """Train the ensemble and write everything a run needs to ``models/<run_id>/``."""
-    if run_stage_a is not None:
-        run_stage_a_flag = bool(run_stage_a)
-
     cfg = load_config(Path(config_path).parent) if config_path else get_config()
     device = pick_device(cfg)
     models_root = Path(models_dir) if models_dir else cfg.paths.resolve("models")
@@ -372,11 +368,11 @@ def train_run(
             log.info("model has %d parameters", count_parameters(model))
 
         history: list[dict] = []
-        if run_stage_a_flag:
+        if run_stage_a:
             fold_clean = [s for s in clean if s.scene_id != val_scene] or clean
-            run_stage_a(model, fold_clean, stats, cfg, device, int(seed), history)
+            train_stage_a(model, fold_clean, stats, cfg, device, int(seed), history)
 
-        state, best_epoch, val_accuracy = run_stage_b(
+        state, best_epoch, val_accuracy = train_stage_b(
             model, fold_train, fold_val, stats, cfg, device, int(seed), history
         )
         model.load_state_dict(state)
@@ -460,7 +456,7 @@ def train_run(
         },
         "val_scene_per_seed": {str(r.seed): r.val_scene for r in results},
         "device": device,
-        "stage_a": run_stage_a_flag,
+        "stage_a": run_stage_a,
     }
     (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     log.info("run written to %s", run_dir)

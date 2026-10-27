@@ -40,8 +40,8 @@ class ExportWrapper(torch.nn.Module):
         return out.score, out.problems, attention
 
 
-def _dummy_sample(n_frames: int = 8, n_pairs: int = 4) -> CaptureSample:
-    rng = np.random.default_rng(0)
+def _dummy_sample(n_frames: int = 8, n_pairs: int = 4, seed: int = 0) -> CaptureSample:
+    rng = np.random.default_rng(seed)
     return CaptureSample(
         capture_id="dummy",
         scene_id="dummy",
@@ -50,6 +50,12 @@ def _dummy_sample(n_frames: int = 8, n_pairs: int = 4) -> CaptureSample:
         global_vec=rng.normal(size=GLOBAL_DIM).astype(np.float32),
         problems=np.zeros(1, dtype=np.float32),
     )
+
+
+def _inputs(predictor, n_frames: int, n_pairs: int, seed: int = 0) -> tuple:
+    sample = _dummy_sample(n_frames, n_pairs, seed)
+    batch = collate([predictor.stats.normalise(sample)])
+    return (batch.frames, batch.pairs, batch.global_vec, batch.frame_mask, batch.pair_mask)
 
 
 def export_run(
@@ -71,39 +77,51 @@ def export_run(
     wrapper = ExportWrapper(model)
     wrapper.eval()
 
-    sample = _dummy_sample()
-    batch = collate([predictor.stats.normalise(sample)])
-    inputs = (
-        batch.frames, batch.pairs, batch.global_vec, batch.frame_mask, batch.pair_mask,
-    )
-
+    inputs = _inputs(predictor, n_frames=8, n_pairs=4)
     target = Path(out_path) if out_path else path / "model.onnx"
-    torch.onnx.export(
-        wrapper,
-        inputs,
-        str(target),
-        input_names=["frames", "pairs", "global_vec", "frame_mask", "pair_mask"],
-        output_names=["score", "problems", "attention"],
-        dynamic_axes={
-            "frames": {0: "batch", 1: "n_frames"},
-            "pairs": {0: "batch", 1: "n_pairs"},
-            "global_vec": {0: "batch"},
-            "frame_mask": {0: "batch", 1: "n_frames"},
-            "pair_mask": {0: "batch", 1: "n_pairs"},
-            "score": {0: "batch"},
-            "problems": {0: "batch"},
-            "attention": {0: "batch", 1: "n_tokens"},
-        },
-        opset_version=opset,
-        dynamo=False,
-    )
+
+    # The tracing exporter freezes the attention reshapes at whatever sequence
+    # length it saw, so an export traced on 8 frames fails on a real capture's
+    # 80. The dynamo exporter keeps the length symbolic; it needs `onnxscript`.
+    batch = torch.export.Dim("batch", min=1, max=64)
+    n_frames = torch.export.Dim("n_frames", min=2, max=4096)
+    n_pairs = torch.export.Dim("n_pairs", min=2, max=4096)
+    try:
+        torch.onnx.export(
+            wrapper,
+            inputs,
+            str(target),
+            input_names=["frames", "pairs", "global_vec", "frame_mask", "pair_mask"],
+            output_names=["score", "problems", "attention"],
+            dynamic_shapes=(
+                {0: batch, 1: n_frames},
+                {0: batch, 1: n_pairs},
+                {0: batch},
+                {0: batch, 1: n_frames},
+                {0: batch, 1: n_pairs},
+            ),
+            opset_version=opset,
+            dynamo=True,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on the install
+        raise RuntimeError(
+            "ONNX export needs the `onnxscript` package "
+            "(pip install onnxscript). PyTorch scoring works without it."
+        ) from exc
     log.info("exported %s", target)
 
-    verify_export(target, wrapper, inputs)
+    # Verify at the traced size *and* at a realistic one: exporting at one
+    # sequence length and running at another is exactly how this breaks.
+    verify_export(target, wrapper, inputs, label="8 frames")
+    verify_export(
+        target, wrapper, _inputs(predictor, n_frames=80, n_pairs=40, seed=1), label="80 frames"
+    )
     return target
 
 
-def verify_export(onnx_path: str | Path, wrapper: torch.nn.Module, inputs: tuple) -> None:
+def verify_export(
+    onnx_path: str | Path, wrapper: torch.nn.Module, inputs: tuple, label: str = ""
+) -> None:
     """Fail loudly if ONNX and PyTorch disagree by more than ``TOLERANCE``."""
     import onnxruntime
 
@@ -122,11 +140,12 @@ def verify_export(onnx_path: str | Path, wrapper: torch.nn.Module, inputs: tuple
     }
     actual = session.run(None, feed)
 
+    where = f" at {label}" if label else ""
     for name, want, got in zip(("score", "problems", "attention"), expected, actual, strict=True):
         difference = float(np.max(np.abs(want.numpy() - np.asarray(got))))
         if difference > TOLERANCE:
             raise AssertionError(
-                f"ONNX output `{name}` differs from PyTorch by {difference:.2e} "
+                f"ONNX output `{name}`{where} differs from PyTorch by {difference:.2e} "
                 f"(tolerance {TOLERANCE:.0e})"
             )
-        log.info("ONNX `%s` matches PyTorch (max difference %.2e)", name, difference)
+        log.info("ONNX `%s`%s matches PyTorch (max difference %.2e)", name, where, difference)

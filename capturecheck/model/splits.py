@@ -69,8 +69,15 @@ def make_splits(
     test_share: float = 0.2,
     seed: int = 0,
     out_dir: str | Path | None = None,
+    min_test_captures: int = 10,
 ) -> SplitReport:
-    """Write ``train_scenes.txt`` and ``test_scenes.txt``, and check they are disjoint."""
+    """Write ``train_scenes.txt`` and ``test_scenes.txt``, and check they are disjoint.
+
+    Company scenes always go to test. The test side is then topped up with whole
+    scenes until it holds at least ``min_test_captures`` captures, because a
+    smaller test set cannot support a correlation with any useful interval
+    around it. Train always keeps at least one scene.
+    """
     cfg = get_config()
     out_dir = Path(out_dir) if out_dir else cfg.paths.resolve("splits")
 
@@ -85,15 +92,23 @@ def make_splits(
     shuffled = list(rest)
     rng.shuffle(shuffled)
 
-    n_test_extra = int(round(float(test_share) * len(rest)))
-    if company:
-        # Company scenes already fill part of the test side.
-        n_test_extra = max(0, n_test_extra - len(company))
-    # Always leave at least one scene on each side when that is possible.
+    # Company scenes already count towards the share the test side should hold.
+    wanted_test_scenes = max(1, int(round(float(test_share) * len(scenes))))
+    n_test_extra = max(0, wanted_test_scenes - len(company))
     if len(rest) >= 2:
-        n_test_extra = min(n_test_extra, len(rest) - 1)
-        if not company:
-            n_test_extra = max(1, n_test_extra)
+        n_test_extra = max(1, n_test_extra) if not company else n_test_extra
+
+    def captures_in(names: list[str]) -> int:
+        return sum(len(scenes[s]["captures"]) for s in names)
+
+    # Top up with whole scenes until the test side is big enough to measure on.
+    max_extra = max(0, len(rest) - 1)
+    n_test_extra = min(n_test_extra, max_extra)
+    while (
+        n_test_extra < max_extra
+        and captures_in(company + shuffled[:n_test_extra]) < min_test_captures
+    ):
+        n_test_extra += 1
 
     test = sorted(company + shuffled[:n_test_extra])
     train = sorted(shuffled[n_test_extra:])

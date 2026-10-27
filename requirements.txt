@@ -18,6 +18,7 @@ torchvision>=0.17
 lightgbm>=4.3
 onnx>=1.16
 onnxruntime>=1.17
+onnxscript>=0.1   # needed only to export to ONNX
 
 # Review UI
 streamlit>=1.33

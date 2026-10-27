@@ -14,6 +14,9 @@ import numpy as np
 import pandas as pd
 
 from capturecheck.model.data import GLOBAL_FEATURES, CaptureSample
+from capturecheck.utils.logging import get_logger
+
+log = get_logger(__name__)
 
 #: Columns a LightGBM baseline is allowed to use: the same hand-made features the
 #: transformer sees in its global vector, and nothing more.
@@ -138,30 +141,70 @@ def lightgbm_baseline(
     y_train = np.array(target, dtype=np.float64)
 
     note = ""
-    try:
-        import lightgbm as lgb
+    scores = _fit_lightgbm(np.nan_to_num(x_train), y_train, np.nan_to_num(x_test), seed)
+    if scores is None:
+        from sklearn.ensemble import HistGradientBoostingRegressor
 
-        model = lgb.LGBMRegressor(
-            n_estimators=300, learning_rate=0.05, num_leaves=15,
-            min_child_samples=5, subsample=0.9, colsample_bytree=0.9,
-            random_state=seed, verbose=-1,
+        model = HistGradientBoostingRegressor(
+            max_iter=300, learning_rate=0.05, max_leaf_nodes=15,
+            min_samples_leaf=5, random_state=seed,
         )
         model.fit(np.nan_to_num(x_train), y_train)
         scores = model.predict(np.nan_to_num(x_test))
-    except ImportError:  # pragma: no cover - lightgbm is in the dev extra
-        from sklearn.ensemble import GradientBoostingRegressor
-
-        model = GradientBoostingRegressor(random_state=seed)
-        model.fit(np.nan_to_num(x_train), y_train)
-        scores = model.predict(np.nan_to_num(x_test))
-        note = "LightGBM was not installed; scikit-learn gradient boosting was used instead."
+        note = (
+            "LightGBM could not be run here, so scikit-learn's histogram gradient "
+            "boosting (the same family of model) was used instead."
+        )
 
     return BaselineResult(
         name="lightgbm_features",
-        description="LightGBM on the capture-level features",
+        description="Gradient-boosted trees on the capture-level features",
         scores=np.asarray(scores, dtype=float),
         note=note,
     )
+
+
+def _fit_lightgbm(
+    x_train: np.ndarray, y_train: np.ndarray, x_test: np.ndarray, seed: int
+) -> np.ndarray | None:
+    """Fit LightGBM in a separate interpreter, or return ``None`` if that fails.
+
+    LightGBM and PyTorch each bundle their own ``libomp`` on macOS, and a process
+    that loads both segfaults mid-fit. CaptureCheck always imports torch, so
+    LightGBM gets an interpreter of its own, which never does.
+    """
+    import subprocess
+    import sys
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="capturecheck_lgbm_") as tmp:
+        folder = Path(tmp)
+        input_path = folder / "input.npz"
+        output_path = folder / "scores.npy"
+        np.savez(
+            input_path,
+            x_train=x_train.astype(np.float64),
+            y_train=y_train.astype(np.float64),
+            x_test=x_test.astype(np.float64),
+            seed=np.array(seed),
+        )
+        command = [
+            sys.executable, "-I", "-m", "capturecheck.model._lightgbm_worker",
+            str(input_path), str(output_path),
+        ]
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.warning("could not start the LightGBM worker (%s)", exc)
+            return None
+
+        if completed.returncode != 0 or not output_path.is_file():
+            log.warning(
+                "the LightGBM worker failed (exit %s): %s",
+                completed.returncode, (completed.stderr or "").strip()[-300:],
+            )
+            return None
+        return np.load(output_path)
 
 
 def all_baselines(
