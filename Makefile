@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: setup demo label review train eval export test test-all lint format degrade splits features clean
+.PHONY: setup demo label review train eval export test test-all lint format degrade splits features check-degradations clean
 
 setup:
 	$(PIP) install -e ".[dev]"
@@ -20,6 +20,9 @@ features:
 
 splits:
 	$(PY) scripts/08_make_splits.py
+
+check-degradations:
+	$(PY) scripts/12_check_degradations.py
 
 review:
 	.venv/bin/streamlit run capturecheck/review/app.py

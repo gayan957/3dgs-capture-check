@@ -129,6 +129,7 @@ capturecheck evaluate                         # vs baselines, writes the report
 | 4. Review uncertain captures | `streamlit run capturecheck/review/app.py` | `human_labels.csv` |
 | 5. Train shiny-surface classifier (~200 labelled frames) | `python scripts/06_train_shiny_classifier.py` | `models/shiny_classifier.joblib` |
 | 6. Check label agreement | `python scripts/07_check_label_agreement.py` | `reports/label_agreement.md` |
+| 7. Check the broken copies really are broken | `python scripts/12_check_degradations.py` | printed table |
 
 ### Labels
 | Capture label | Meaning |
