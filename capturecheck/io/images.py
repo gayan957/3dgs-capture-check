@@ -313,12 +313,12 @@ def read_bundle(
         names = [Path(p).name for p in photo_paths]
         keep_mask = [f is not None for f in frames]
         if not all(keep_mask):
-            bad = [n for n, ok in zip(names, keep_mask) if not ok]
+            bad = [n for n, ok in zip(names, keep_mask, strict=False) if not ok]
             log.warning("skipping %d unreadable photo(s): %s", len(bad), ", ".join(bad[:5]))
-            frames = [f for f, ok in zip(frames, keep_mask) if ok]
-            names = [n for n, ok in zip(names, keep_mask) if ok]
-            times = [t for t, ok in zip(times, keep_mask) if ok]
-            exifs = [e for e, ok in zip(exifs, keep_mask) if ok]
+            frames = [f for f, ok in zip(frames, keep_mask, strict=False) if ok]
+            names = [n for n, ok in zip(names, keep_mask, strict=False) if ok]
+            times = [t for t, ok in zip(times, keep_mask, strict=False) if ok]
+            exifs = [e for e, ok in zip(exifs, keep_mask, strict=False) if ok]
         if not frames:
             raise ValueError(f"no readable photos in {path}")
 

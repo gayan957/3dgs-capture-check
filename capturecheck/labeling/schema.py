@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
 # --------------------------------------------------------------------------- #
 # Frame labels
 # --------------------------------------------------------------------------- #
@@ -63,13 +64,21 @@ FRAME_LABEL_NAMES: tuple[str, ...] = tuple(d.name for d in FRAME_LABELS)
 # --------------------------------------------------------------------------- #
 VIDEO_LABELS: tuple[LabelDef, ...] = (
     LabelDef("motion_blur", "Too many blurry frames or photos.", (0, 1), (1,)),
-    LabelDef("lighting", "Brightness changes a lot, or frames are over/under exposed.", (0, 1), (1,)),
-    LabelDef("no_walking", "The camera only turned on the spot instead of moving around.", (0, 1), (1,)),
-    LabelDef("poor_coverage", "Whole directions around the subject were never filmed.", (0, 1), (1,)),
+    LabelDef(
+        "lighting", "Brightness changes a lot, or frames are over/under exposed.", (0, 1), (1,)
+    ),
+    LabelDef(
+        "no_walking", "The camera only turned on the spot instead of moving around.", (0, 1), (1,)
+    ),
+    LabelDef(
+        "poor_coverage", "Whole directions around the subject were never filmed.", (0, 1), (1,)
+    ),
     LabelDef("too_few_views", "Not enough genuinely different frames or photos.", (0, 1), (1,)),
     LabelDef("low_overlap", "Neighbouring frames share too little; there are gaps.", (0, 1), (1,)),
     LabelDef("mixed_cameras", "Photos come from several cameras or image sizes.", (0, 1), (1,)),
-    LabelDef("reflective", "Many shiny or glass surfaces, which 3DGS reconstructs badly.", (0, 1), (1,)),
+    LabelDef(
+        "reflective", "Many shiny or glass surfaces, which 3DGS reconstructs badly.", (0, 1), (1,)
+    ),
     LabelDef("low_texture", "Many plain surfaces, so features cannot be matched.", (0, 1), (1,)),
     LabelDef("noisy", "Heavy sensor noise (high ISO or a very dark scene).", (0, 1), (1,)),
 )

@@ -265,11 +265,15 @@ def merge_quality_targets(video_df: pd.DataFrame, out_dir=None) -> pd.DataFrame:
     targets = read_quality_targets(out_dir)
     if targets.empty or "capture_id" not in targets.columns:
         return video_df
-    mapping = dict(zip(targets["capture_id"], targets["psnr"]))
+    mapping = dict(zip(targets["capture_id"], targets["psnr"], strict=False))
     video_df = video_df.copy()
     video_df["psnr"] = [
         mapping.get(cid, existing)
-        for cid, existing in zip(video_df["capture_id"], video_df.get("psnr", pd.Series(dtype=float)))
+        for cid, existing in zip(
+            video_df["capture_id"],
+            video_df.get("psnr", pd.Series(dtype=float)),
+            strict=False,
+        )
     ]
     return video_df
 
@@ -288,7 +292,8 @@ def read_scene_list(name: str, path: str | Path | None = None) -> list[str]:
     target = splits_dir(path) / name
     if not target.is_file():
         return []
-    return [line.strip() for line in target.read_text(encoding="utf-8").splitlines() if line.strip()]
+    lines = target.read_text(encoding="utf-8").splitlines()
+    return [line.strip() for line in lines if line.strip()]
 
 
 def write_scene_list(scenes: list[str], name: str, path: str | Path | None = None) -> Path:
