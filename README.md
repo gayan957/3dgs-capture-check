@@ -113,7 +113,7 @@ capturecheck labels                           # what every label means
 
 No captures yet? Generate a synthetic set and run the whole pipeline on it:
 ```bash
-python scripts/00_make_demo_data.py --clean   # 7 synthetic captures in data/raw
+python scripts/00_make_demo_data.py --clean   # 8 synthetic captures in data/raw
 capturecheck degrade                          # broken copies with exact labels
 capturecheck label data                       # label everything
 capturecheck splits && capturecheck train     # split by scene, then train
