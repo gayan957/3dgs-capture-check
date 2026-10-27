@@ -9,18 +9,26 @@ CaptureCheck looks at a capture, either a **video** or an **image bundle** (a fo
 
 ```
 $ capturecheck check ./office_scan.mp4
-Score: 0.42  (likely poor)
+
+office_scan  (video, 412 frames)
+Score: 0.42  (likely poor)   model: 2026-10-27_run01
 Problems:
-  • Motion blur     14.0–17.5 s (frames 28–35), 38% of frames blurry
-  • Poor coverage   9 of 24 view bins empty: left, eye level; back, eye level
-Time: 41 s
+  • Motion blur    14.0-17.5 s (frames 28-35), 38% of frames blurry  (p=0.94)
+  • Poor coverage  the camera only got 83° round the subject (want at least 180°);
+                   never filmed from: front, eye level; right, eye level (+2 more)  (p=0.81)
+Needs review: walked_ratio 0.48 is just under the 0.5 threshold
+Time: 41 s (budget 60 s)
 
 $ capturecheck check ./kitchen_photos.zip
-Score: 0.58  (fair)
+
+kitchen_photos  (images, 196 frames)
+Score: 0.58  (fair)   model: 2026-10-27_run01
 Problems:
-  • Low overlap     gap between IMG_0412 and IMG_0413 (8% shared)
-  • Motion blur     IMG_0520 to IMG_0524, shutter 1/30 s on 12% of photos
-Time: 33 s
+  • Low overlap    gap between IMG_0412 and IMG_0413 (8% shared), 24% of
+                   neighbouring pairs share too little  (p=0.80)
+  • Motion blur    IMG_0520 to IMG_0524, 31% of frames blurry,
+                   shutter 1/30 s on 12% of photos  (p=0.88)
+Time: 33 s (budget 60 s)
 ```
 
 > Built for the Rysera Innovations TransitionX 2026 problem statement
@@ -156,27 +164,36 @@ The report calls it out when a baseline ranks the test captures as well as the m
 
 ### Results on the synthetic demo set
 
-> **These numbers do not say anything about real reconstruction quality.** The demo set's `psnr` column is a geometric stand-in, not a 3DGS measurement, and its 23 test captures are far too few to separate methods whose intervals overlap. They are here to show the pipeline runs end to end and produces a report; replace `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result of your own.
+> **These numbers say nothing about real reconstruction quality.** The demo set's `psnr` column is a geometric stand-in, not a 3DGS measurement, and 23 test captures cannot separate methods whose intervals overlap. They are here to show the pipeline runs end to end and reports honestly. Replace `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result of your own.
 
-Run `2026-10-27_run02`, 23 unseen test captures across 2 held-out scenes (one of them the test-only "company" scene):
+Run `2026-10-27_run01`, 23 unseen test captures across 2 held-out scenes (one of them the test-only "company" scene):
 
 | Method | Spearman vs target (95% CI) |
 |---|---|
 | Mean blur | 0.20 (−0.28 – 0.61) |
 | Frame count | 0.37 (−0.03 – 0.69) |
 | ORB match count (COLMAP stand-in) | 0.47 (0.04 – 0.81) |
-| LightGBM on the same features | 0.60 (0.22 – 0.85) |
-| **CaptureCheck** | **0.71 (0.37 – 0.91)** |
+| LightGBM on the same features | 0.55 (0.14 – 0.84) |
+| **CaptureCheck** | **0.59 (0.17 – 0.86)** |
+
+**The model does not beat LightGBM here.** It edges ahead by 0.04 with intervals that almost entirely overlap, which on 23 captures means "indistinguishable". Both clearly beat frame count and mean blur. The target of ≥ 0.70 was not reached on this set; what that costs is unknown until the targets are real PSNR values rather than a stand-in.
+
+What *is* clearly working is the diagnosis:
 
 | Problem label | Precision | Recall | Positives in test |
 |---|---|---|---|
-| `motion_blur` | 1.00 | 0.33 | 3 |
+| `motion_blur` | 1.00 | 1.00 | 3 |
 | `noisy` | 1.00 | 1.00 | 3 |
-| `low_overlap` | 0.56 | 0.62 | 8 |
-| `poor_coverage` | 0.48 | 1.00 | 11 |
-| `too_few_views` | 0.21 | 1.00 | 4 |
+| `no_walking` | 1.00 | 0.75 | 4 |
+| `low_texture` | 1.00 | 1.00 | 1 |
+| `low_overlap` | 0.80 | 0.50 | 8 |
+| `too_few_views` | 0.60 | 0.75 | 4 |
+| `poor_coverage` | 0.59 | 0.91 | 11 |
+| `lighting` | 0.27 | 1.00 | 3 |
 
-Validation ranking accuracy across the five leave-one-scene-out folds: 0.84 (0.81–0.88).
+`mixed_cameras` and `reflective` have no positives in this test set: the demo captures all come from one synthetic camera, and no shiny classifier has been trained. Those two columns are untested, not passing.
+
+Validation ranking accuracy across the five leave-one-scene-out folds: 0.84 (0.81–0.88). That it is well above the test figure is what a 23-capture test set looks like, not evidence of a leak — the split is by scene and the test scenes were never trained on.
 
 Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
 
@@ -185,7 +202,7 @@ Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
 | 600 photos | 19.1 s | 0.8 ms | **19.1 s** |
 | 5-minute 1080p video (600 frames at 2 fps) | 14.6 s | 0.8 ms | **14.6 s** |
 
-Both are well inside the 60-second budget. The per-frame cost is checked by `tests/test_budget.py`.
+Both are well inside the 60-second budget. The per-frame cost is guarded by `tests/test_budget.py`.
 
 ## Dataset and collection protocol
 - **Sources:** company captures (test only), your own videos and photo bundles, and broken copies of good captures.

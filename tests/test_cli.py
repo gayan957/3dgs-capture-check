@@ -112,3 +112,34 @@ def test_degrade_writes_copies(tmp_path, tiny_bundle):
 )
 def test_quality_bands(score, expected):
     assert quality_band(score) == expected
+
+
+def test_check_without_a_trained_model_says_so(tiny_bundle, monkeypatch):
+    """No run yet must read as "not trained", not as "you asked me not to"."""
+    from capturecheck.model import predict as predict_mod
+
+    monkeypatch.setattr(predict_mod, "load_predictor", lambda *a, **k: None)
+    result = runner.invoke(app, ["check", str(tiny_bundle), "--no-dino"])
+    assert result.exit_code == 0, result.stdout
+    assert "no trained model yet" in result.stdout
+    assert "capturecheck train" in result.stdout
+
+
+def test_check_reports_a_score_when_a_run_exists(tiny_bundle, monkeypatch):
+    from capturecheck.model import predict as predict_mod
+    from capturecheck.model.predict import Prediction
+
+    monkeypatch.setattr(
+        predict_mod,
+        "predict_capture",
+        lambda result, run_dir=None: Prediction(
+            capture_id=result.capture_id,
+            score=0.73,
+            problems={"motion_blur": 0.9},
+            run_id="2026-01-01_run01",
+        ),
+    )
+    result = runner.invoke(app, ["check", str(tiny_bundle), "--no-dino"])
+    assert result.exit_code == 0, result.stdout
+    assert "0.73" in result.stdout
+    assert "2026-01-01_run01" in result.stdout

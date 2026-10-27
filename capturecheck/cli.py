@@ -127,8 +127,13 @@ def check(
             f"Score: [bold]{prediction.score:.2f}[/bold]  ({quality_band(prediction.score)})"
             + (f"   [dim]model: {prediction.run_id}[/dim]" if prediction.run_id else "")
         )
-    else:
+    elif no_score:
         console.print("[dim]Score: not computed (--no-score)[/dim]")
+    else:
+        console.print(
+            "[dim]Score: no trained model yet — showing the rules and evidence only.\n"
+            "      Train one with `capturecheck splits && capturecheck train`.[/dim]"
+        )
 
     flagged = result.problems
     if flagged:
