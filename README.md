@@ -161,6 +161,8 @@ Two stages, because there will never be many captures with a real PSNR number:
 
 Five seeds are trained and kept as an ensemble; each validates on a different held-out scene, which is leave-one-scene-out across the ensemble. Saved runs go to `models/<run_id>/` (weights, ONNX, thresholds, feature statistics, metrics, splits, training log).
 
+Stage A needs clean captures to damage, so a dataset in which every capture is marked degraded leaves it with nothing to do. The run's `metrics.json` records whether it **ran**, not just whether it was asked for, and the training log's `stage` column shows both stages — worth checking, because a silently skipped stage A looks exactly like a fast training run.
+
 ## Evaluation and results
 ```bash
 capturecheck evaluate
