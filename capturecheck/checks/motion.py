@@ -371,6 +371,91 @@ def walked_or_turned(
     )
 
 
+def _sample_pairs(n: int, gap: int, max_samples: int = 6) -> list[tuple[int, int]]:
+    """A handful of pairs ``gap`` apart, spread over the capture."""
+    starts = np.linspace(0, max(0, n - gap - 1), num=min(max_samples, max(1, n - gap)))
+    return [(int(s), int(s) + gap) for s in np.unique(starts.round().astype(int))]
+
+
+def choose_pair_gap(
+    features: list[OrbFrame],
+    base_gap: int = 1,
+    max_gap: int = 8,
+    min_overlap: float = 0.15,
+    min_confidence: float = 0.35,
+    k: np.ndarray | None = None,
+) -> tuple[int, str]:
+    """Pick how far apart to compare frames when judging walked versus turned.
+
+    Neighbouring frames of a dense capture can be too alike to tell the two
+    apart: a 2.5-degree step around a subject four metres away moves the camera
+    so little that a homography fits the parallax just as well as an essential
+    matrix does, and the decision lands on the coin-toss boundary. Widening the
+    gap adds baseline without adding rotation, so it sharpens a real walk while
+    leaving a genuine pivot exactly as it was.
+
+    The search stops as soon as a gap shows confident *walking*, and otherwise
+    keeps widening until the frames no longer share enough features to match. It
+    is deliberately asymmetric: "turned" at a short baseline is the answer a
+    homography gives whatever the camera did, so it is never taken as final while
+    a wider pair is still affordable. A camera that really only pivoted reads as
+    "turned" at every gap, because a homography describes pure rotation exactly
+    no matter how far apart the frames are.
+
+    Returns ``(gap, reason)``.
+    """
+    n = len(features)
+    base_gap = max(1, base_gap)
+    if n < 3:
+        return base_gap, "too few frames to choose a gap"
+
+    best_gap, best_evidence = base_gap, -1.0
+    gap = base_gap
+    reason = "neighbouring frames already showed the camera moving"
+    widened = False
+
+    while gap <= max_gap and gap < n // 2:
+        samples = _sample_pairs(n, gap)
+        if not samples:
+            break
+        overlaps = [overlap(features[i], features[j]) for i, j in samples]
+        if float(np.median(overlaps)) < min_overlap:
+            reason = f"stopped at gap {best_gap}: wider pairs no longer share enough features"
+            break
+
+        results = [walked_or_turned(features[i], features[j], K=k) for i, j in samples]
+        decided = [r for r in results if r.kind != UNKNOWN]
+        if not decided:
+            gap *= 2
+            widened = True
+            continue
+
+        walked_share = sum(1 for r in decided if r.kind == WALKED) / len(decided)
+        confidence = float(np.mean([r.confidence for r in decided]))
+        evidence = walked_share * confidence
+        if evidence > best_evidence:
+            best_gap, best_evidence = gap, evidence
+
+        if walked_share > 0.5 and confidence >= min_confidence:
+            return gap, (
+                f"gap {gap} shows the camera moving (confidence {confidence:.2f})"
+                if widened
+                else "neighbouring frames already showed the camera moving"
+            )
+
+        gap *= 2
+        widened = True
+        reason = (
+            f"neighbouring frames were too alike to judge; compared frames "
+            f"{best_gap} apart instead"
+        )
+
+    if best_evidence <= 0.0:
+        best_gap = base_gap
+        reason = "no gap showed parallax: the camera appears to have turned on the spot"
+    return best_gap, reason
+
+
 def motion_pairs(
     frames: list[np.ndarray],
     features: list[OrbFrame] | None = None,
@@ -378,16 +463,42 @@ def motion_pairs(
     focal_px: float | None = None,
     is_video: bool = True,
     order: list[int] | None = None,
+    adaptive: bool = True,
+    max_gap: int | None = None,
+    min_overlap: float | None = None,
+    min_confidence: float | None = None,
 ) -> list[tuple[int, int, PairMotion]]:
     """Walked-vs-turned for every sampled pair.
 
-    Videos use pairs ``gap`` frames apart (~1 s at 2 fps); photo bundles use each
-    photo and the next. ``order`` lets an unordered bundle supply its own pairing
-    (see :func:`capturecheck.features.similarity.nearest_neighbour_pairs`).
+    Videos start from pairs ``gap`` frames apart (~1 s at 2 fps) and photo
+    bundles from neighbouring photos, but with ``adaptive`` the gap is widened
+    when the frames turn out to be too alike to judge (see
+    :func:`choose_pair_gap`). ``order`` lets an unordered bundle supply its own
+    pairing (see :func:`capturecheck.features.similarity.nearest_neighbour_pairs`).
     """
+    from capturecheck.config import get_config
+
+    cfg = get_config().labeling
     features = features if features is not None else orb_frames(frames)
+    if not features:
+        return []
+
+    k = approx_intrinsics(features[0].shape, focal_px)
     step = max(1, int(gap)) if is_video else 1
-    k = approx_intrinsics(features[0].shape, focal_px) if features else None
+
+    if order is None and adaptive:
+        step, _ = choose_pair_gap(
+            features,
+            base_gap=step,
+            max_gap=int(max_gap if max_gap is not None else cfg.sampling.max_pair_gap_frames),
+            min_overlap=(
+                min_overlap if min_overlap is not None else cfg.motion.min_pair_overlap
+            ),
+            min_confidence=(
+                min_confidence if min_confidence is not None else cfg.motion.min_pair_confidence
+            ),
+            k=k,
+        )
 
     pairs: list[tuple[int, int]]
     if order is not None:

@@ -18,6 +18,7 @@ from capturecheck.checks.coverage import CameraPath, Coverage, coverage_map, rou
 from capturecheck.checks.motion import (
     OrbFrame,
     approx_intrinsics,
+    choose_pair_gap,
     flow_speed,
     motion_pairs,
     orb_frames,
@@ -25,7 +26,12 @@ from capturecheck.checks.motion import (
 )
 from capturecheck.config import Config, get_config
 from capturecheck.features import similarity
-from capturecheck.features.dino import EMBED_DIM, DinoEmbedder, evenly_spaced
+from capturecheck.features.dino import (
+    EMBED_DIM,
+    DinoEmbedder,
+    default_embedder,
+    evenly_spaced,
+)
 from capturecheck.io.load import Capture, load_capture
 from capturecheck.labeling import classifiers
 from capturecheck.labeling.aggregate import VideoLabelResult, to_video_labels
@@ -112,7 +118,7 @@ def measure_capture(
     emb_idx = np.zeros(0, dtype=int)
     if use_dino and n:
         with timings.step("dino"):
-            embedder = embedder or DinoEmbedder()
+            embedder = embedder or default_embedder()
             try:
                 emb, emb_idx = embedder.embed_capture(
                     capture.capture_id, frames, use_cache=use_cache
@@ -147,14 +153,32 @@ def measure_capture(
 
     # --- motion: walked or turned, and flow speed for videos --------------- #
     with timings.step("motion"):
+        k_matrix = (
+            approx_intrinsics(features[0].shape, capture.focal_length_px) if features else None
+        )
+        pair_gap = lab.sampling.pair_gap_frames if capture.is_video else 1
+        gap_reason = ""
+        if order_pairs is None and features:
+            pair_gap, gap_reason = choose_pair_gap(
+                features,
+                base_gap=pair_gap,
+                max_gap=lab.sampling.max_pair_gap_frames,
+                min_overlap=lab.motion.min_pair_overlap,
+                min_confidence=lab.motion.min_pair_confidence,
+                k=k_matrix,
+            )
+            log.info("comparing frames %d apart: %s", pair_gap, gap_reason)
         pairs = motion_pairs(
             frames,
             features=features,
-            gap=lab.sampling.pair_gap_frames,
+            gap=pair_gap,
             focal_px=capture.focal_length_px,
             is_video=capture.is_video,
             order=order_pairs,
+            adaptive=False,
         )
+        capture.info["pair_gap"] = int(pair_gap)
+        capture.info["pair_gap_reason"] = gap_reason
         pair_rows = []
         for i, j, result in pairs:
             row = {
@@ -182,12 +206,10 @@ def measure_capture(
 
     # --- coverage ---------------------------------------------------------- #
     with timings.step("coverage"):
-        k = approx_intrinsics(features[0].shape, capture.focal_length_px) if features else None
         path = rough_path(pairs=pairs) if pairs else None
         cov = coverage_map(path) if path is not None else None
         if cov is not None and not cov.reliable:
             log.debug("camera path unreliable for %s", capture.capture_id)
-        del k
 
     # --- assemble the frame table ------------------------------------------ #
     exposures = [e.exposure_s for e in capture.exif] if capture.exif else []

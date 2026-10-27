@@ -188,14 +188,20 @@ def probe(path: str | Path) -> VideoInfo:
 
 
 def resize_to_width(frame: np.ndarray, width: int) -> np.ndarray:
-    """Resize keeping the aspect ratio. Frames wider than ``width`` are shrunk only."""
+    """Shrink to ``width``, keeping the aspect ratio.
+
+    Narrower frames are left alone: upscaling costs time and invents no detail.
+    What matters for the thresholds is that every frame of a capture is measured
+    at the same width, which this guarantees either way. The width actually used
+    is recorded as ``measured_width`` so thresholds can be recalibrated for
+    captures that came in below ``resize_width``.
+    """
     h, w = frame.shape[:2]
-    if w == width or width <= 0:
+    if width <= 0 or w <= width:
         return frame
     scale = width / float(w)
     new_h = max(1, int(round(h * scale)))
-    interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
-    return cv2.resize(frame, (width, new_h), interpolation=interp)
+    return cv2.resize(frame, (width, new_h), interpolation=cv2.INTER_AREA)
 
 
 def _target_times(duration_s: float, fps: float, max_frames: int) -> np.ndarray:

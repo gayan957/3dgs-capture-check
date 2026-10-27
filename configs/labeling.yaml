@@ -4,6 +4,7 @@ sampling:
   fps: 2                     # frames taken per second of video
   max_frames: 600            # cap for long videos (spread evenly)
   pair_gap_frames: 2         # walked-vs-turned compares frames ~1 s apart
+  max_pair_gap_frames: 8     # widen up to here when neighbours are too alike to judge
   dino_max_frames: 80        # DINOv2 uses at most this many frames
 
 images:
@@ -32,6 +33,8 @@ views:
 
 motion:
   walked_ratio_min: 0.5             # below -> no_walking
+  min_pair_overlap: 0.15            # stop widening the gap once pairs barely match
+  min_pair_confidence: 0.35         # below this the pair is too close to call
 
 overlap:
   min_overlap: 0.3                  # neighbour pair below this = low overlap

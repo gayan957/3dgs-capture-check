@@ -82,6 +82,7 @@ class Sampling:
     fps: float = 2.0
     max_frames: int = 600
     pair_gap_frames: int = 2
+    max_pair_gap_frames: int = 8
     dino_max_frames: int = 80
 
 
@@ -118,6 +119,8 @@ class ViewsCfg:
 @dataclass
 class MotionCfg:
     walked_ratio_min: float = 0.5
+    min_pair_overlap: float = 0.15
+    min_pair_confidence: float = 0.35
 
 
 @dataclass

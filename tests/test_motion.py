@@ -139,3 +139,30 @@ def test_identical_frames_read_as_turned(sharp_image):
     result = motion.walked_or_turned(sharp_image, sharp_image)
     assert result.kind == motion.TURNED
     assert result.homography_share > motion.HOMOGRAPHY_SHARE
+
+
+def test_choose_pair_gap_widens_when_neighbours_are_too_alike():
+    """A dense walk-around: neighbours are nearly identical, so widen the gap."""
+    from conftest import translation_frames as make
+
+    frames = make(24, width=480, height=360, step=1)  # 1 px of parallax per step
+    features = motion.orb_frames(frames)
+    gap, reason = motion.choose_pair_gap(features, base_gap=1, max_gap=8)
+    assert gap >= 1
+    assert isinstance(reason, str) and reason
+
+
+def test_choose_pair_gap_keeps_a_pivot_as_turned(rot_frames):
+    """Widening must not turn a genuine pivot into "walked"."""
+    features = motion.orb_frames(rot_frames)
+    gap, reason = motion.choose_pair_gap(features, base_gap=1, max_gap=4)
+    pairs = motion.motion_pairs(rot_frames, features=features, gap=gap, adaptive=False)
+    assert motion.walked_ratio(pairs) < 0.25
+    assert "turned on the spot" in reason or "no longer share" in reason
+
+
+def test_choose_pair_gap_accepts_decisive_neighbours(trans_frames):
+    features = motion.orb_frames(trans_frames)
+    gap, reason = motion.choose_pair_gap(features, base_gap=1, max_gap=8)
+    assert gap == 1
+    assert "already showed the camera moving" in reason

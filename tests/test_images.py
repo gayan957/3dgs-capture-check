@@ -76,3 +76,25 @@ def test_load_capture_reads_capture_folder(tiny_capture_dir):
     assert cap.input_type == "video"
     assert cap.capture_id == "kitchen_video"
     assert cap.focal_length_px is None  # videos carry no EXIF focal length
+
+
+def test_numbered_names_count_as_an_order(tmp_path, bundle_frames):
+    """Stripped EXIF but camera-numbered files: the order is still known."""
+    from conftest import write_photo
+
+    folder = tmp_path / "numbered"
+    folder.mkdir()
+    for i, frame in enumerate(bundle_frames[:10]):
+        write_photo(
+            folder / f"DSC_{i:04d}.jpg", frame,
+            camera=None, when=None, exposure=None, iso=None, focal_35mm=None,
+        )
+    read = images_io.read_bundle(folder, width=320)
+    assert read.info.has_exif_time is False
+    assert read.info.order_source == "name"
+    assert load_capture(folder, width=320).has_order is True
+
+
+def test_unordered_names_fall_back_to_similarity_pairing(no_exif_bundle):
+    capture = load_capture(no_exif_bundle, width=320)
+    assert capture.has_order is False

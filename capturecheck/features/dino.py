@@ -199,6 +199,17 @@ class DinoEmbedder:
         return emb, keep
 
 
+_DEFAULT: DinoEmbedder | None = None
+
+
+def default_embedder() -> DinoEmbedder:
+    """A shared embedder, so a batch of captures loads the backbone once."""
+    global _DEFAULT
+    if _DEFAULT is None:
+        _DEFAULT = DinoEmbedder()
+    return _DEFAULT
+
+
 def load_cached(capture_id: str, cache_dir: str | Path | None = None) -> dict | None:
     """Everything stored in ``data/features/<capture_id>.npz``, or ``None``."""
     cfg = get_config()

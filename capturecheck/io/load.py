@@ -150,11 +150,13 @@ def load_capture(
             video_path, fps=fps, max_frames=max_frames, width=width
         )
         info = vinfo.as_dict()
+        measured_w = int(frames[0].shape[1]) if frames else 0
         info.update(
             {
                 "input_type": VIDEO,
                 "n_frames": len(frames),
                 "sample_fps": cfg.sampling.fps if fps is None else float(fps),
+                "measured_width": measured_w,
                 "n_cameras": 1,
                 "n_sizes": 1,
                 "order_source": "video",
@@ -188,6 +190,7 @@ def load_capture(
             "n_frames": len(read.frames),
             "width": int(src_w or w),
             "height": int(src_h or h),
+            "measured_width": int(w),
             "fps": None,
             "duration_s": None,
             "codec": None,

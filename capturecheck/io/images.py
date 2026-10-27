@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import zipfile
 from dataclasses import asdict, dataclass, field
@@ -233,6 +234,30 @@ def _extract_zip(zip_path: Path, dest: Path, extensions: set[str]) -> list[Path]
     return sorted(out)
 
 
+def _names_look_sequential(names: list[str]) -> bool:
+    """True when the file names are a numbered sequence, e.g. ``IMG_0007.jpg``.
+
+    Stripped EXIF does not mean the capture order is lost: a camera's own
+    numbering is as good a clue as a timestamp. A pile of unrelated names
+    (``holiday.jpg``, ``front door.jpg``) is a different matter, and those
+    bundles get paired by visual similarity instead.
+    """
+    if len(names) < 3:
+        return False
+    numbers: list[int] = []
+    for name in names:
+        match = re.search(r"(\d+)\D*$", Path(name).stem)
+        if match:
+            numbers.append(int(match.group(1)))
+    if len(numbers) < 0.8 * len(names):
+        return False
+    ordered = [n for _, n in sorted(zip(names, numbers, strict=True), key=lambda p: p[0].lower())]
+    if any(b <= a for a, b in zip(ordered, ordered[1:], strict=False)):
+        return False  # alphabetical order disagrees with the numbering
+    span = max(numbers) - min(numbers) + 1
+    return span <= 4 * len(numbers)  # a sequence, not a handful of stray numbers
+
+
 def _order_photos(exifs: list[ExifInfo], mode: str) -> tuple[list[int], str]:
     """Indices in capture order, and which signal was used."""
     have_time = [e.datetime_original is not None for e in exifs]
@@ -324,9 +349,13 @@ def read_bundle(
 
         info = bundle_info(exifs, order_source=order_source)
         if order_source == "name" and not info.has_exif_time:
-            info.order_source = (
-                "unknown" if cfg.labeling.images.unknown_order == "dino_nearest" else "name"
-            )
+            # Names only count as an order when they form a numbered sequence.
+            sequential = _names_look_sequential([Path(p).name for p in photo_paths])
+            if not sequential and cfg.labeling.images.unknown_order == "dino_nearest":
+                info.order_source = "unknown"
+            else:
+                info.order_source = "name"
+
         log.info(
             "%s: %d photos (order: %s, cameras: %d, sizes: %d)",
             path.name, len(frames), info.order_source, info.n_cameras, info.n_sizes,
