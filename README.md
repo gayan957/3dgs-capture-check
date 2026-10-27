@@ -227,7 +227,7 @@ Both are well inside the 60-second budget. The per-frame cost is guarded by `tes
 capturecheck/
 ├── configs/        # all thresholds and settings
 ├── capturecheck/   # package: io (video + images), checks, features, labeling, degrade, review, model
-├── scripts/        # numbered pipeline steps 00–11
+├── scripts/        # numbered pipeline steps 00–12
 ├── data/           # videos, photo bundles, frames, features, labels, splits (not in git)
 ├── models/         # saved runs (not in git)
 ├── reports/        # label agreement + evaluation reports
