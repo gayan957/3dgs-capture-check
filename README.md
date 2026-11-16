@@ -145,7 +145,7 @@ Time: 1 s (budget 60 s)
 |---|---|---|
 | 1. Put captures in `data/raw/<capture_id>/` (a video, an `images/` folder, or a .zip) + optional `scene.txt` | n/a | n/a |
 | 2. Make broken copies (exact, free labels) | `python scripts/02_make_degraded_copies.py` | `data/degraded/` |
-| 3. Auto-label everything | `capturecheck label data` | `data/labels/*.csv` |
+| 3. Auto-label (only what is new; see below) | `capturecheck label data` | `data/labels/*.csv` |
 | 4. Review uncertain captures | `streamlit run capturecheck/review/app.py` | `human_labels.csv` |
 | 5. Train shiny-surface classifier (~200 labelled frames) | `python scripts/06_train_shiny_classifier.py` | `models/shiny_classifier.joblib` |
 | 6. Check label agreement | `python scripts/07_check_label_agreement.py` | `reports/label_agreement.md` |
@@ -167,6 +167,35 @@ Time: 1 s (budget 60 s)
 | `REVIEW` | System unsure, a person checks |
 
 A capture goes to `REVIEW` when a measurement sits within 15% of its threshold, or when two checks disagree — for example varied-looking views next to a camera path that recovered no motion.
+
+### Adding one capture
+
+Drop it into `data/raw/<capture_id>/` and run `capturecheck label data` again. Only the
+new capture is measured; the rows already on disk are carried over untouched, and rows for
+captures that have gone are dropped:
+
+```
+$ capturecheck label data
+measured: 1 new · kept: 51 · removed: 0
+```
+
+So adding one capture costs one capture, not the whole folder.
+
+Rows measured under two different rule sets must never share the training table, so
+`data/labels/label_run.json` records a digest of every setting the measurements depend on —
+the whole labelling config plus whether DINOv2 ran. Move a threshold, change the sampling
+rate or pass `--no-dino`, and the digest no longer matches: the folder is remeasured in full
+and the reason is printed.
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Measure what is new, keep what is unchanged, drop what has gone |
+| `--from-scratch` | Remeasure everything, replacing all existing rows |
+| `--new-only` | Stop with an error rather than remeasure everything |
+| `--no-cache` | Ignore the cached DINOv2 features (use after replacing a file under the same capture id) |
+
+Use `--new-only` in a script, where silently spending an hour remeasuring would be worse
+than failing.
 
 ## Training
 ```bash

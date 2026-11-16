@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +22,7 @@ VIDEO_LABELS_FILE = "video_labels.csv"
 REVIEW_QUEUE_FILE = "review_queue.csv"
 HUMAN_LABELS_FILE = "human_labels.csv"
 QUALITY_TARGETS_FILE = "quality_targets.csv"
+LABEL_RUN_FILE = "label_run.json"
 
 
 @dataclass
@@ -253,6 +255,42 @@ def append_human_labels(rows: list[dict] | pd.DataFrame, out_dir=None) -> Path:
 
 def read_human_labels(out_dir=None) -> pd.DataFrame:
     return read_labels(HUMAN_LABELS_FILE, out_dir, schema.HUMAN_CSV_COLUMNS)
+
+
+def write_label_run(digest: str, n_captures: int, out_dir=None) -> Path:
+    """Record how the labels in this folder were measured.
+
+    ``digest`` comes from :func:`capturecheck.labeling.fingerprint.labeling_digest`.
+    An incremental label reads it back and refuses to append to rows that were
+    measured under different settings.
+    """
+    target = labels_dir(out_dir) / LABEL_RUN_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "config_digest": str(digest),
+        "written": datetime.now(UTC).isoformat(timespec="seconds"),
+        "n_captures": int(n_captures),
+    }
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    log.info("wrote %s (digest %s)", target, digest)
+    return target
+
+
+def read_label_run(out_dir=None) -> dict:
+    """What :func:`write_label_run` recorded, or ``{}`` when it is missing.
+
+    An unreadable file is treated as missing: an honest "I do not know how
+    these were measured" forces a full relabel, which is the safe answer.
+    """
+    target = labels_dir(out_dir) / LABEL_RUN_FILE
+    if not target.is_file():
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        log.warning("cannot read %s; treating these labels as unknown", target)
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def read_quality_targets(out_dir=None) -> pd.DataFrame:

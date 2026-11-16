@@ -24,7 +24,10 @@ data/
 │   ├── video_labels.csv         one row per capture (the training table)
 │   ├── review_queue.csv         captures waiting for a person
 │   ├── human_labels.csv         reviewer decisions
-│   └── quality_targets.csv      capture_id,psnr for captures with a known result
+│   ├── quality_targets.csv      capture_id,psnr for captures with a known result
+│   └── label_run.json           a digest of the settings these rows were measured
+│                                with, so an incremental label can tell whether
+│                                a new row may join them
 ├── classifier_train/            ~200 hand-labelled frames for the shiny classifier
 │   ├── images/
 │   └── labels.csv               image_path,shiny

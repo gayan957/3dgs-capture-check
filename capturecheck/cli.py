@@ -211,15 +211,35 @@ def label(
     out: Path | None = typer.Option(None, "--out", help="Where to write the CSVs."),
     no_dino: bool = typer.Option(False, "--no-dino", help="Skip DINOv2."),
     no_cache: bool = typer.Option(False, "--no-cache", help="Ignore cached DINOv2 features."),
-    limit: int | None = typer.Option(None, "--limit", help="Only the first N captures."),
+    limit: int | None = typer.Option(None, "--limit", help="Only the first N new captures."),
+    from_scratch: bool = typer.Option(
+        False, "--from-scratch", help="Remeasure every capture, replacing all existing rows."
+    ),
+    new_only: bool = typer.Option(
+        False, "--new-only", help="Only new captures; stop rather than remeasure everything."
+    ),
 ) -> None:
-    """Label every capture in a folder and write the label CSVs."""
+    """Label the captures in a folder and write the label CSVs.
+
+    By default only captures missing from ``video_labels.csv`` are measured and
+    their rows added, and rows for captures no longer on disk are dropped, so
+    adding one capture costs one capture. Changing a threshold, the sampling or
+    ``--no-dino`` invalidates every existing row, because rows measured under
+    two rule sets cannot share one training table; the whole folder is
+    remeasured instead and the reason is printed. ``--from-scratch`` always
+    remeasures everything, ``--new-only`` stops rather than remeasure.
+    """
     import pandas as pd
     from tqdm import tqdm
 
     from capturecheck.io import dataset
     from capturecheck.labeling.aggregate import summarize_labels
+    from capturecheck.labeling.fingerprint import labeling_digest
     from capturecheck.labeling.pipeline import label_capture
+
+    if from_scratch and new_only:
+        console.print("[red]--from-scratch and --new-only cannot both be given.[/red]")
+        raise typer.Exit(code=2)
 
     cfg = get_config()
     folder = Path(folder)
@@ -229,18 +249,59 @@ def label(
         refs = dataset.discover_all(folder / "raw", folder / "degraded")
     else:
         refs = dataset.list_captures(folder)
-    if limit:
-        refs = refs[: int(limit)]
     if not refs:
         console.print(f"[red]No captures found in {folder}[/red]")
         raise typer.Exit(code=1)
 
     out_dir = Path(out) if out else cfg.paths.resolve("labels")
+    digest = labeling_digest(use_dino=not no_dino)
+    previous = dataset.read_label_run(out_dir)
+    old_videos = dataset.read_video_labels(out_dir)
+    old_frames = dataset.read_frame_labels(out_dir)
+    known = {str(c) for c in old_videos["capture_id"].dropna()} if len(old_videos) else set()
+
+    # Why the rows already on disk cannot be kept -- or None when they can.
+    if from_scratch:
+        remeasure_because = "--from-scratch was given"
+    elif not known:
+        remeasure_because = "there are no labels here yet"
+    elif previous.get("config_digest") != digest:
+        remeasure_because = "the labelling settings changed since these labels were written"
+    else:
+        remeasure_because = None
+
+    if new_only and remeasure_because is not None:
+        console.print(f"[red]Cannot label only the new captures:[/red] {remeasure_because}.")
+        console.print(f"[dim]Remeasure the folder with: capturecheck label {folder} "
+                      f"--from-scratch[/dim]")
+        raise typer.Exit(code=1)
+
+    discovered = {ref.capture_id for ref in refs}
+    if remeasure_because is None:
+        todo = [ref for ref in refs if ref.capture_id not in known]
+        carried = sorted(discovered & known)
+        gone = sorted(known - discovered)
+    else:
+        todo = list(refs)
+        carried, gone = [], []
+        console.print(f"[yellow]Measuring every capture:[/yellow] {remeasure_because}.")
+
+    if limit:
+        todo = todo[: int(limit)]
+
+    if not todo and not gone:
+        console.print(
+            f"[green]Already up to date[/green] - {len(carried)} captures, nothing new."
+        )
+        console.print(f"[dim]Drop a capture into {folder}, or pass --from-scratch to "
+                      f"remeasure what is here.[/dim]")
+        return
+
     frame_tables: list[pd.DataFrame] = []
     video_rows: list[dict] = []
     failures: list[tuple[str, str]] = []
 
-    for ref in tqdm(refs, desc="labelling", unit="capture"):
+    for ref in tqdm(todo, desc="labelling", unit="capture"):
         try:
             result = label_capture(
                 ref.path,
@@ -261,12 +322,28 @@ def label(
         frame_tables.append(result.frame_rows)
         video_rows.append(result.video_row)
 
-    if not video_rows:
+    if not video_rows and not gone:
         console.print("[red]Every capture failed.[/red]")
+        for capture_id, message in failures[:10]:
+            console.print(f"  {capture_id}: {message}")
         raise typer.Exit(code=1)
 
-    frame_df = pd.concat(frame_tables, ignore_index=True)
-    video_df = pd.DataFrame(video_rows)
+    if remeasure_because is None:
+        # Keep the rows of every capture still on disk that was not just
+        # measured; a capture measured again replaces its own rows.
+        measured_now = {str(row["capture_id"]) for row in video_rows}
+        keep = discovered - measured_now
+        video_parts = [old_videos[old_videos["capture_id"].astype(str).isin(keep)]]
+        frame_parts = [old_frames[old_frames["capture_id"].astype(str).isin(keep)]]
+    else:
+        video_parts, frame_parts = [], []
+
+    if video_rows:
+        video_parts.append(pd.DataFrame(video_rows))
+        frame_parts.append(pd.concat(frame_tables, ignore_index=True))
+
+    video_df = pd.concat(video_parts, ignore_index=True)
+    frame_df = pd.concat(frame_parts, ignore_index=True)
     video_df = dataset.merge_quality_targets(video_df, out_dir)
 
     dataset.write_frame_labels(frame_df, out_dir=out_dir)
@@ -276,6 +353,7 @@ def label(
     dataset.write_review_queue(
         queue.reindex(columns=list(schema.REVIEW_QUEUE_COLUMNS)), out_dir=out_dir
     )
+    dataset.write_label_run(digest, len(video_df), out_dir=out_dir)
 
     table = Table(title=f"{len(video_df)} captures labelled", show_edge=False)
     table.add_column("capture label")
@@ -285,6 +363,12 @@ def label(
         table.add_row(row["label"], str(int(row["captures"])), f"{row['share'] * 100:.0f}%")
     console.print(table)
 
+    if remeasure_because is None:
+        console.print(
+            f"measured: {len(video_rows)} new · kept: {len(carried)} · removed: {len(gone)}"
+        )
+        if gone:
+            console.print(f"[dim]no longer on disk: {', '.join(gone[:8])}[/dim]")
     console.print(
         f"frames: {len(frame_df)} · videos: {int((video_df['input_type'] == 'video').sum())} · "
         f"bundles: {int((video_df['input_type'] == 'images').sum())} · "
