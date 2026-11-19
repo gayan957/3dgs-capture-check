@@ -1,17 +1,11 @@
-# Captures and models are too big for git, but their documentation is not
+# Captures, caches and models are too big for git, but their documentation is not
 data/*
 !data/README.md
 
-# The feature cache is an exception: it is training data, not a cache. The pair
-# table and the coverage grid are written nowhere else, so a clone without them
-# trains on zeroed pair tokens and an empty coverage grid without erroring.
-# See non-negotiable 9 in CLAUDE.md. ~5 MB for 65 captures.
-!data/features/
-data/features/*
-!data/features/*.npz
-
+docs/
 models/
 reports/figures/*.png
+*.npz
 *.joblib
 *.pt
 *.onnx
