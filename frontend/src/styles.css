@@ -435,9 +435,3 @@ a { color: var(--accent); }
   .clear-list ul { columns: 1; }
 }
 
-/* The primer's closing line: the one thing worth knowing, kept quiet. */
-.primer-note {
-  margin: 12px 0 0;
-  font-size: 13px;
-  color: var(--ink-3);
-}

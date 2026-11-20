@@ -70,9 +70,7 @@ export function Uploader({ accepts, maxUploadMb, disabled, onPick }: Props) {
           />
         </svg>
         <p className="dropmain">Drop a capture here, or click to choose</p>
-        <p className="dropsub">
-          A video, or a .zip of photos &middot; up to {maxUploadMb} MB
-        </p>
+        <p className="dropsub">A video, or a .zip of photos</p>
         <input
           ref={input}
           type="file"

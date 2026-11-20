@@ -176,10 +176,6 @@ function WhatItLooksFor() {
         <li>Do neighbouring frames overlap enough?</li>
         <li>Are the frames sharp, lit evenly, and detailed enough to match?</li>
       </ul>
-      <p className="primer-note">
-        A sharp video filmed from a tripod fails. A shaky one where you walked
-        around works.
-      </p>
     </section>
   );
 }
