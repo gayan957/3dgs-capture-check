@@ -1,21 +1,26 @@
 /* CaptureCheck — one stylesheet, light and dark, no framework. */
 
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --ink: #16191d;
-  --ink-2: #4a5159;
-  --ink-3: #767d86;
-  --line: #dde1e6;
-  --accent: #1f4e79;
+  /* Warm neutrals with a blue accent: the page reads like paper, and anything
+     that asks for attention is blue rather than warm, so it stands apart from
+     the background instead of blending into it. Values marked (derived) fill
+     roles the supplied palette does not name; each clears 4.5:1 on the surface
+     it sits on. */
+  --bg: #f7f6f2;          /* warm alabaster */
+  --surface: #ffffff;     /* crisp white */
+  --surface-2: #efede7;   /* (derived) inset tiles, code, progress track */
+  --ink: #181816;         /* charcoal ink */
+  --ink-2: #63615b;       /* warm slate */
+  --ink-3: #6a685f;       /* (derived) small labels */
+  --line: #e5e2dc;        /* warm stone */
+  --accent: #1b5e96;      /* steel blue */
   --accent-ink: #ffffff;
-  --good: #1a7f4b;
-  --fair: #b07a08;
-  --poor: #c2591a;
-  --bad: #b3261e;
+  --good: #166534;        /* forest sage, darkened to pass on --surface-2 */
+  --fair: #1a67a8;        /* (derived) mid blue */
+  --poor: #0b4a72;        /* (derived) deep blue */
+  --bad: #b91c1c;         /* (derived) red stays: it is the one real alarm */
   --radius: 12px;
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 14px rgba(16, 24, 40, 0.05);
+  --shadow: 0 1px 2px rgba(60, 50, 35, 0.06), 0 4px 14px rgba(60, 50, 35, 0.05);
 }
 
 /* The dark tokens are applied in two cases: the operating system asks for dark
@@ -23,38 +28,38 @@
    two lists are identical and kept adjacent so they cannot drift apart. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e1116;
-    --surface: #161b22;
-    --surface-2: #1d232c;
-    --ink: #e8ebef;
-    --ink-2: #b2bac4;
-    --ink-3: #828b96;
-    --line: #2b323c;
-    --accent: #5fa8e8;
-    --accent-ink: #0e1116;
-    --good: #4cc38a;
-    --fair: #e3b341;
-    --poor: #f0883e;
-    --bad: #f27a72;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+    --bg: #161615;          /* warm charcoal */
+    --surface: #1f1f1d;     /* deep espresso grey */
+    --surface-2: #2a2a27;   /* (derived) */
+    --ink: #f2f0eb;         /* warm ivory */
+    --ink-2: #9c9a92;       /* stone grey */
+    --ink-3: #95938a;       /* (derived) */
+    --line: #2e2e2b;        /* muted ash */
+    --accent: #60a5fa;      /* sky blue */
+    --accent-ink: #161615;
+    --good: #4ade80;        /* soft moss */
+    --fair: #7db8f0;        /* (derived) light blue */
+    --poor: #4a9eeb;        /* (derived) stronger blue */
+    --bad: #f87171;         /* (derived) */
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.35);
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0e1116;
-  --surface: #161b22;
-  --surface-2: #1d232c;
-  --ink: #e8ebef;
-  --ink-2: #b2bac4;
-  --ink-3: #828b96;
-  --line: #2b323c;
-  --accent: #5fa8e8;
-  --accent-ink: #0e1116;
-  --good: #4cc38a;
-  --fair: #e3b341;
-  --poor: #f0883e;
-  --bad: #f27a72;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --bg: #161615;          /* warm charcoal */
+  --surface: #1f1f1d;     /* deep espresso grey */
+  --surface-2: #2a2a27;   /* (derived) */
+  --ink: #f2f0eb;         /* warm ivory */
+  --ink-2: #9c9a92;       /* stone grey */
+  --ink-3: #95938a;       /* (derived) */
+  --line: #2e2e2b;        /* muted ash */
+  --accent: #60a5fa;      /* sky blue */
+  --accent-ink: #161615;
+  --good: #4ade80;        /* soft moss */
+  --fair: #7db8f0;        /* (derived) light blue */
+  --poor: #4a9eeb;        /* (derived) stronger blue */
+  --bad: #f87171;         /* (derived) */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -92,6 +97,7 @@ a { color: var(--accent); }
   justify-content: space-between;
   margin-bottom: 28px;
 }
+.brand { flex: 1 1 420px; }
 .brand h1 {
   margin: 0;
   font-size: 30px;
@@ -99,8 +105,16 @@ a { color: var(--accent); }
 }
 .tagline {
   margin: 6px 0 0;
-  color: var(--ink-2);
+  font-size: 17px;
+  color: var(--ink);
   max-width: 52ch;
+}
+.lede {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 62ch;
 }
 .masthead-right {
   display: flex;
@@ -190,10 +204,8 @@ a { color: var(--accent); }
 }
 
 /* ---------- primer ---------- */
-.primer p { margin-top: 0; color: var(--ink-2); }
-.primer-list { margin: 12px 0 0; padding-left: 20px; }
-.primer-list li { margin-bottom: 9px; color: var(--ink-2); }
-.primer-list strong { color: var(--ink); }
+.primer-list { margin: 10px 0 0; padding-left: 20px; }
+.primer-list li { margin-bottom: 5px; color: var(--ink-2); }
 
 /* ---------- progress ---------- */
 .progress-head {
@@ -228,7 +240,6 @@ a { color: var(--accent); }
 }
 .stage { margin: 12px 0 0; font-size: 15px; }
 .hint { margin: 6px 0 0; color: var(--ink-3); font-size: 13px; }
-.busy-note { text-align: center; color: var(--ink-3); font-size: 13px; }
 
 /* ---------- result ---------- */
 .result-head {
@@ -299,14 +310,6 @@ a { color: var(--accent); }
 }
 .score-facts dt { font-size: 12px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
 .score-facts dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
-.caveat {
-  margin: 16px 0 0;
-  padding: 10px 14px;
-  background: var(--surface-2);
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--ink-2);
-}
 
 /* ---------- problems ---------- */
 .problems { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -323,8 +326,47 @@ a { color: var(--accent); }
 .problem-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 .problem-title { font-weight: 600; }
 .prob { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.evidence { margin: 6px 0 0; font-size: 14px; color: var(--ink); }
-.meaning { margin: 4px 0 0; font-size: 13px; color: var(--ink-3); }
+.evidence { margin: 8px 0 0 20px; font-size: 14px; color: var(--ink-2); }
+
+/* Each problem opens to show its evidence. The arrow is drawn here rather than
+   left to the browser, whose default marker cannot sit in a flex row. */
+.problem summary,
+.review-note summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.problem summary::-webkit-details-marker,
+.review-note summary::-webkit-details-marker { display: none; }
+.problem summary::before,
+.review-note summary::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--ink-3);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+}
+.problem details[open] summary::before,
+.review-note details[open] summary::before { transform: rotate(90deg); }
+.problem summary .problem-title { flex: 1; }
+.problem summary:focus-visible,
+.review-note summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .problem summary::before,
+  .review-note summary::before { transition: none; }
+}
+/* A problem with no evidence has no arrow, so keep its title in line with the
+   ones that do. */
+.problem-head.no-detail { padding-left: 15px; }
 .all-clear { color: var(--good); font-weight: 600; margin: 8px 0 0; }
 
 .clear-list { margin-top: 16px; }
@@ -345,9 +387,9 @@ a { color: var(--accent); }
   padding: 12px 14px;
 }
 .stat-label { font-size: 12px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
-.stat-value { font-size: 24px; font-weight: 650; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.stat-value { font-size: 24px; font-weight: 650; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
 .stat-value.unknown { font-size: 16px; color: var(--ink-3); font-weight: 500; }
-.stat-help { font-size: 12px; color: var(--ink-3); line-height: 1.45; }
+.stat { cursor: help; }
 
 .all-stats { margin-top: 16px; }
 .all-stats summary { cursor: pointer; color: var(--ink-3); font-size: 14px; }
@@ -370,6 +412,13 @@ a { color: var(--accent); }
 .card.error { border-left: 4px solid var(--bad); }
 .card.error h2 { color: var(--bad); }
 .review-note { border-left: 4px solid var(--fair); font-size: 15px; }
+.review-note summary { font-weight: 600; }
+.review-note summary::before { border-left-color: var(--fair); }
+.review-reason {
+  margin: 8px 0 0 20px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
 .foot {
   margin-top: 36px;
   padding-top: 18px;
@@ -384,4 +433,11 @@ a { color: var(--accent); }
   .page { padding: 24px 16px 60px; }
   .score-value { font-size: 44px; }
   .clear-list ul { columns: 1; }
+}
+
+/* The primer's closing line: the one thing worth knowing, kept quiet. */
+.primer-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--ink-3);
 }

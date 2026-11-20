@@ -19,17 +19,13 @@ export function Progress({ job, budgetS }: Props) {
       <div className="progress-head">
         <span className="filename">{job.filename}</span>
         <span className={`elapsed${over ? " over" : ""}`}>
-          {job.elapsed_s.toFixed(0)}s <span className="muted">/ {budgetS}s budget</span>
+          {job.elapsed_s.toFixed(0)}s <span className="muted">/ {budgetS}s</span>
         </span>
       </div>
       <div className="bar" role="progressbar" aria-label={job.stage}>
         <div className="bar-fill" />
       </div>
       <p className="stage">{job.stage}&hellip;</p>
-      <p className="hint">
-        Most of this is measuring every frame and running the vision model. It runs on the
-        CPU, so a long video takes a while.
-      </p>
     </section>
   );
 }

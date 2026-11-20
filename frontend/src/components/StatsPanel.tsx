@@ -5,10 +5,9 @@ type Kind = "percent" | "degrees" | "count" | "number";
 interface Spec {
   key: string;
   label: string;
+  /** Shown on hover, not on screen: the label carries the meaning. */
   help: string;
   kind: Kind;
-  /** Higher is better, so a low value is the thing to worry about. */
-  higherIsBetter: boolean;
 }
 
 /** The measurements that decide whether a capture reconstructs, in order. */
@@ -16,58 +15,50 @@ const HEADLINE: Spec[] = [
   {
     key: "walked_ratio",
     label: "Walked",
-    help: "Share of frame pairs where the camera genuinely moved rather than turned on the spot. The single most important number here.",
+    help: "How often the camera really moved instead of turning on the spot. The most important number here.",
     kind: "percent",
-    higherIsBetter: true,
   },
   {
     key: "azimuth_span_deg",
     label: "Angle covered",
-    help: "How far around the subject the camera travelled. 360 degrees means every side was filmed.",
+    help: "How far around the subject you got. 360° means every side.",
     kind: "degrees",
-    higherIsBetter: true,
   },
   {
     key: "overlap_mean",
     label: "Overlap",
-    help: "How much detail neighbouring frames share on average. Too little and the frames cannot be linked.",
+    help: "How much neighbouring frames share. Too little and they cannot be linked.",
     kind: "percent",
-    higherIsBetter: true,
   },
   {
     key: "blur_ratio",
     label: "Blurry frames",
-    help: "Share of frames too soft to give reliable reference points.",
+    help: "Share of frames too soft to be useful.",
     kind: "percent",
-    higherIsBetter: false,
   },
   {
     key: "diversity",
     label: "View variety",
-    help: "How different the views are from one another. Low variety means you did not move around much.",
+    help: "How different the views are from one another.",
     kind: "number",
-    higherIsBetter: true,
   },
   {
     key: "unique_views",
     label: "Distinct views",
-    help: "Frames that are genuinely different from the others, after duplicates are discounted.",
+    help: "Frames that are genuinely different, after duplicates are discounted.",
     kind: "count",
-    higherIsBetter: true,
   },
   {
     key: "coverage_empty_bins",
-    label: "Unfilmed sectors",
-    help: "Of 24 slices around the subject, how many were never filmed from.",
+    label: "Unfilmed sides",
+    help: "Of 24 directions around the subject, how many you never filmed from.",
     kind: "count",
-    higherIsBetter: false,
   },
   {
     key: "low_texture_ratio",
     label: "Blank frames",
-    help: "Share of frames with too little texture to grab onto, such as plain walls.",
+    help: "Share of frames with too little detail, such as plain walls.",
     kind: "percent",
-    higherIsBetter: false,
   },
 ];
 
@@ -97,9 +88,6 @@ export function StatsPanel({ result }: Props) {
   return (
     <section className="card">
       <h2>The measurements</h2>
-      <p className="subnote">
-        These are measured, not predicted. They hold whatever the model says.
-      </p>
 
       <div className="stat-grid">
         {HEADLINE.map((spec) => {
@@ -111,7 +99,6 @@ export function StatsPanel({ result }: Props) {
               <div className={`stat-value${unknown ? " unknown" : ""}`}>
                 {format(value, spec.kind)}
               </div>
-              <div className="stat-help">{spec.help}</div>
             </div>
           );
         })}

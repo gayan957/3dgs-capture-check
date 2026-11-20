@@ -55,31 +55,26 @@ export function App() {
     }
   }, []);
 
-  const busy = phase.name === "uploading" || phase.name === "working";
-
   return (
     <div className="page">
       <header className="masthead">
         <div className="brand">
           <h1>CaptureCheck</h1>
-          <p className="tagline">
-            Find out whether your footage will reconstruct in 3D, before you spend hours
-            finding out the hard way.
+          <p className="tagline">Will your footage make a good 3D Gaussian Splat?</p>
+          <p className="lede">
+            CaptureCheck evaluates video quality for 3D Gaussian Splatting by checking
+            camera movement, scene coverage, and frame overlap. It provides a quality
+            score and identifies what needs to be re-shot before training, saving time
+            and effort.
           </p>
         </div>
         <div className="masthead-right">
-          {health && (
+          {/* Only worth saying when it is not true: a named run id means nothing
+              to a visitor, but "no model" changes how to read the page. */}
+          {health && !health.can_score && (
             <div className="server-state">
-              <span className={`dot${health.can_score ? " live" : " warn"}`} aria-hidden="true" />
-              <span>
-                {health.can_score ? (
-                  <>
-                    model <code>{health.model}</code>
-                  </>
-                ) : (
-                  "no trained model: rules only"
-                )}
-              </span>
+              <span className="dot warn" aria-hidden="true" />
+              <span>no trained model: rules only</span>
             </div>
           )}
           <ThemeToggle />
@@ -88,7 +83,7 @@ export function App() {
 
       {boot && (
         <div className="card error" role="alert">
-          <h2>Server unavailable</h2>
+          <h2>Server not running</h2>
           <p>{boot}</p>
         </div>
       )}
@@ -125,7 +120,7 @@ export function App() {
 
           {phase.name === "error" && (
             <div className="card error" role="alert">
-              <h2>That did not work</h2>
+              <h2>Could not check that</h2>
               <p>{phase.message}</p>
               <button className="again" onClick={() => setPhase({ name: "idle" })}>
                 Try another capture
@@ -146,7 +141,12 @@ export function App() {
               <StatsPanel result={phase.job.result} />
               {phase.job.result.review && (
                 <div className="card review-note">
-                  <strong>Worth a human look.</strong> {phase.job.result.review_reason}
+                  {/* The reason names raw measurements and thresholds, which is
+                      for whoever tunes them, not for a visitor reading a score. */}
+                  <details>
+                    <summary>Worth a human look</summary>
+                    <p className="review-reason">{phase.job.result.review_reason}</p>
+                  </details>
                 </div>
               )}
             </>
@@ -154,21 +154,10 @@ export function App() {
         </>
       )}
 
-      {busy && (
-        <p className="busy-note">
-          Leave this page open. The check runs on the server and the page updates itself.
-        </p>
-      )}
-
       <footer className="foot">
-        <p>
-          The score is predicted. The measurements and the evidence are not &mdash; they are
-          read off your footage.
-        </p>
         {health && (
           <p className="muted">
-            CaptureCheck {health.version} &middot; Apache 2.0 &middot;{" "}
-            <a href="/docs">API docs</a>
+            CaptureCheck {health.version} &middot; <a href="/docs">API</a>
           </p>
         )}
       </footer>
@@ -176,34 +165,21 @@ export function App() {
   );
 }
 
-/** A short primer, shown before anything is uploaded. */
+/** Four short lines, so a first-time visitor knows what is being judged. */
 function WhatItLooksFor() {
   return (
     <section className="card primer">
-      <h2>What it looks for</h2>
-      <p>
-        3D reconstruction does not care whether your video looks nice. It cares whether the
-        geometry can be solved &mdash; whether the camera moved enough for the software to
-        work out where each frame was taken from.
-      </p>
+      <h2>What it checks</h2>
       <ul className="primer-list">
-        <li>
-          <strong>Did you walk, or turn on the spot?</strong> A sharp 4K pan from a tripod
-          fails completely. A shaky phone video where you walked around works fine.
-        </li>
-        <li>
-          <strong>Did you film every side?</strong> Whatever you never pointed the camera at
-          becomes a hole, or invented geometry.
-        </li>
-        <li>
-          <strong>Do neighbouring frames share detail?</strong> Move too fast and the
-          software cannot link one frame to the next.
-        </li>
-        <li>
-          <strong>Is there anything to grab onto?</strong> Blank walls, mirrors and glass
-          all give the software nothing reliable to anchor to.
-        </li>
+        <li>Did you walk around, or just turn on the spot?</li>
+        <li>Did you film every side?</li>
+        <li>Do neighbouring frames overlap enough?</li>
+        <li>Are the frames sharp, lit evenly, and detailed enough to match?</li>
       </ul>
+      <p className="primer-note">
+        A sharp video filmed from a tripod fails. A shaky one where you walked
+        around works.
+      </p>
     </section>
   );
 }

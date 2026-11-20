@@ -19,8 +19,7 @@ export function ScoreCard({ result }: Props) {
       <section className="card score-card">
         <h2 className="score-none">No score</h2>
         <p className="muted">
-          No model has been trained yet, so only the measurements and evidence below are
-          available. Train one with <code>capturecheck train</code>.
+          No model trained yet &mdash; the measurements below still apply.
         </p>
       </section>
     );
@@ -67,32 +66,21 @@ export function ScoreCard({ result }: Props) {
         </div>
         <div>
           <dt>Checked in</dt>
-          <dd>
-            {result.time_s === null ? "—" : `${result.time_s.toFixed(1)}s`}{" "}
-            <span className="muted">of {result.budget_s}s</span>
-          </dd>
+          <dd>{result.time_s === null ? "—" : `${result.time_s.toFixed(1)}s`}</dd>
         </div>
         <div>
           <dt>Model</dt>
           <dd>{result.model ?? "—"}</dd>
         </div>
         {spread !== null && (
-          <div>
-            <dt>Ensemble spread</dt>
+          <div title={`How much the ${seeds.length} models disagreed`}>
+            <dt>Agreement</dt>
             <dd className={spread > 0.3 ? "warn" : undefined}>
-              {spread.toFixed(2)}{" "}
-              <span className="muted">across {seeds.length} models</span>
+              {spread > 0.3 ? "mixed" : "close"}
             </dd>
           </div>
         )}
       </dl>
-
-      {spread !== null && spread > 0.3 && (
-        <p className="caveat">
-          The five models disagreed by {spread.toFixed(2)} on this capture, so treat the
-          average as a rough direction. The evidence below is measured, not predicted.
-        </p>
-      )}
     </section>
   );
 }
