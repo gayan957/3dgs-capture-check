@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CaptureCheck</title>
+    <meta name="description" content="Check whether your footage will reconstruct in 3D, before you spend hours training." />
+    <script>
+      // Apply the saved theme before anything is painted. React mounts a tick
+      // later, and without this a reader who chose dark would see a white
+      // flash on every load. Wrapped because localStorage throws in a private
+      // window with site data blocked; falling through just follows the system.
+      try {
+        var saved = localStorage.getItem("capturecheck.theme");
+        if (saved === "light" || saved === "dark") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
