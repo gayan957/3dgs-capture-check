@@ -1,325 +1,175 @@
 # CaptureCheck
 
-**Predict 3D Gaussian Splatting quality before you train, and find out what's wrong with the capture.**
+**Find out whether your footage will make a good 3D model — before you spend hours finding out the hard way.**
 
-CaptureCheck looks at a capture, either a **video** or an **image bundle** (a folder or .zip of photos), and, in under 60 seconds on a laptop CPU, gives you:
+You film a room. You feed the footage to 3D reconstruction software. Three hours later you discover the footage was no good, and the only fix is to go back and film it again.
 
-- a **quality score** that predicts how good the splat will be, and
-- a **diagnosis**: the problems found, with evidence.
-
-What that looks like (illustrative — these two captures are made up, to show the shape of the output; real output from the demo set is further down):
+CaptureCheck looks at the footage first. In under a minute, on an ordinary laptop, with no graphics card needed.
 
 ```
-$ capturecheck check ./office_scan.mp4
+$ capturecheck check ./my_room.mp4
 
-office_scan  (video, 412 frames)
-Score: 0.42  (likely poor)   model: 2026-10-27_run01
+my_room  (video, 412 frames)
+Score: 0.42  (likely poor)
+
 Problems:
-  • Motion blur    14.0-17.5 s (frames 28-35), 38% of frames blurry  (p=0.94)
-  • Poor coverage  the camera only got 83° round the subject (want at least 180°);
-                   never filmed from: front, eye level; right, eye level (+2 more)  (p=0.81)
-Needs review: walked_ratio 0.48 is just under the 0.5 threshold
-Time: 41 s (budget 60 s)
+  • Motion blur    38% of frames are too blurry, worst at 14.0–17.5 s
+  • Poor coverage  the camera only got 83° around the room (you want 180° or more)
 
-$ capturecheck check ./kitchen_photos.zip
-
-kitchen_photos  (images, 196 frames)
-Score: 0.58  (fair)   model: 2026-10-27_run01
-Problems:
-  • Low overlap    gap between IMG_0412 and IMG_0413 (8% shared), 24% of
-                   neighbouring pairs share too little  (p=0.80)
-  • Motion blur    IMG_0520 to IMG_0524, 31% of frames blurry,
-                   shutter 1/30 s on 12% of photos  (p=0.88)
-Time: 33 s (budget 60 s)
+Time: 41 s
 ```
-
-> Built for the Rysera Innovations TransitionX 2026 problem statement
-> "Predicting reconstruction quality before you train". Licensed Apache 2.0.
 
 ---
 
-## Contents
-1. [Why](#why)
-2. [How it works](#how-it-works)
-3. [Supported inputs](#supported-inputs)
-4. [Install](#install)
-5. [Quick start](#quick-start)
-6. [Labelling workflow](#labelling-workflow)
-7. [Training](#training)
-8. [Evaluation and results](#evaluation-and-results)
-9. [Dataset and collection protocol](#dataset-and-collection-protocol)
-10. [Project structure](#project-structure)
-11. [Configuration](#configuration)
-12. [Limitations](#limitations)
-13. [Contributing](#contributing)
-14. [Licence and acknowledgements](#licence-and-acknowledgements)
+## The one thing worth understanding
+
+3D reconstruction **does not care whether your video looks nice.** It cares whether the geometry can be solved.
+
+Before any 3D model gets built, the software has to work out where the camera was for every frame. It does that by spotting the same physical point — a table corner, a mark on a wall — in several pictures and working backwards. It is the same trick your two eyes use to judge distance.
+
+This has a consequence that catches people out constantly:
+
+> **A beautiful, razor-sharp 4K video filmed from a tripod that slowly rotates is a total failure.** Every frame was shot from the same spot, so there is nothing to work backwards from.
+>
+> **A slightly shaky phone video where you walked all the way around the sofa works fine.** Uglier footage, but the camera actually moved.
+
+That is why CaptureCheck measures movement and coverage rather than image quality. An ordinary video-quality tool would give that tripod video top marks. This one catches it.
 
 ---
 
-## Why
-A 3DGS training run takes 20–60 minutes of GPU time, and about a third of runs are thrown away. When a run fails, the output doesn't say why. CaptureCheck checks the capture first, before anyone leaves the building.
+## Try it
 
-## How it works
-```
-video        → 2 frames/s  ┐
-image bundle → every photo ┘→ (max 600) → OpenCV checks (blur, light, noise, texture,
-                                           overlap, speed, walked or turned, coverage)
-                                         → DINOv2 on ≤ 80 frames (duplicates, diversity, shiny)
-                                         → rules → frame labels → capture labels + evidence
-                                         → small trained model → quality score
-```
-- **No 3DGS and no GPU** are needed to run it.
-- DINOv2 is used **pretrained and frozen**; only a small model on top is trained.
-- Blur is measured with OpenCV, not DINOv2. For photos, EXIF shutter speed and ISO add extra evidence.
-
-### Walked or turned
-The check worth explaining is the one that catches the most expensive mistake: filming by **turning on the spot**. A pivot gives 3DGS no parallax, so it cannot recover depth however sharp the frames are, and nothing in the images themselves looks wrong.
-
-For each pair of frames CaptureCheck fits both a homography and an essential matrix to the same ORB matches, and compares how much of the total explanatory score the homography accounts for. A homography describes pure rotation exactly, whatever the scene; only real translation lets the essential matrix explain points a homography cannot.
-
-The gap between the compared frames is chosen per capture. Neighbouring frames of a dense capture carry too little baseline to tell a walk from a pivot, so the gap widens until the motion is decisive or the frames no longer share enough features to match. That search only ever accepts a confident *walked* early: "turned" is what a homography says at any short baseline, while a camera that really pivoted reads as turned at every gap. When no gap can decide, the pair is reported as `unknown` rather than guessed at.
-
-## Supported inputs
-| Input | Example | How frames are picked |
-|---|---|---|
-| Video | `room.mp4`, `room.mov` | 2 frames per second (max 600) |
-| Photo folder | `room_photos/*.jpg` / `*.png` | Every photo, ordered by EXIF time, else file name (max 600) |
-| Zip of photos | `room_photos.zip` | Same as a photo folder |
-
-Photo order comes from EXIF capture time where present, and otherwise from file names when they form a numbered sequence (`IMG_0412.jpg`, `DSC_0007.jpg`). A pile of unrelated names has no order to use, so each photo is compared with the photo it looks most like instead of "the next one".
-
-## Install
 ```bash
 git clone <repo-url> && cd capturecheck
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-# optional: ffmpeg/ffprobe on PATH gives better video metadata (OpenCV is the fallback)
+
+capturecheck check path/to/your_video.mp4
 ```
 
-The first run downloads the DINOv2 weights (~84 MB) from torch.hub; after that it works offline.
+The first run downloads a vision model (~84 MB). After that it works offline.
 
-| Install | Gives you |
+Point it at a video, a folder of photos, or a `.zip` of photos:
+
+```bash
+capturecheck check room.mp4           # a video
+capturecheck check room_photos/       # a folder of photos
+capturecheck check room_photos.zip    # a zip of photos
+capturecheck labels                   # what every problem name means
+```
+
+## Or use it in a browser
+
+Better if you would rather not touch a terminal, or you want to hand it to someone else.
+
+```bash
+pip install -e ".[api]"
+make ui          # build the web page (needs Node)
+make serve       # open http://127.0.0.1:8000
+```
+
+Drag a video in, watch it being checked, read the score and what is wrong with it.
+
+---
+
+## What it looks for
+
+| It checks | Because 3D reconstruction needs |
 |---|---|
-| `pip install -e .` | Checking and labelling captures, including the DINOv2 features |
-| `pip install -e ".[model]"` | …plus training, the baselines and the ONNX export |
-| `pip install -e ".[review]"` | …plus the human review screen |
-| `pip install -e ".[dev]"` | Everything, plus pytest and ruff |
+| **Did you walk, or turn on the spot?** | The camera to genuinely move. This is the big one. |
+| **Did you film every side?** | Whatever you never pointed the camera at becomes a hole. |
+| **Do neighbouring frames overlap?** | Move too fast and the software cannot link one frame to the next. |
+| **Are the frames sharp?** | Blurry frames give unreliable reference points. |
+| **Is the lighting steady?** | Flickering exposure makes it fit the flicker, not the room. |
+| **Is there texture to grab onto?** | Blank walls give it nothing to recognise. |
+| **Any mirrors or glass?** | Shiny surfaces look different from every angle, so it invents geometry. |
+| **Enough genuinely different views?** | Fifty photos of the same wall is not fifty useful views. |
 
-## Quick start
-```bash
-capturecheck check path/to/video.mp4          # a video
-capturecheck check path/to/photos/            # a folder of photos
-capturecheck check path/to/photos.zip --json  # a zip, machine-readable output
-capturecheck labels                           # what every label means
-```
+Each failure comes with **evidence** — a timestamp for a video, a filename for photos — so you know what to re-shoot.
 
-No captures yet? Generate a synthetic set and run the whole pipeline on it:
-```bash
-make demo                 # 8 synthetic captures in data/raw (4 videos, 4 photo bundles)
-make degrade              # broken copies with exact labels
-make label                # label everything
-make check-degradations   # confirm each broken copy really is broken
-make splits train         # split by scene, then train
-make export eval          # ONNX export, then the evaluation report
-```
+---
 
-Every step is also a `capturecheck` subcommand (`capturecheck label data`, `capturecheck train`, …); `make` is just a shorthand that uses the project's virtualenv.
-
-Checking one of those demo captures afterwards gives the real thing — this is
-`lobby_pivot`, a capture that pivots on the spot instead of walking round the room:
+## How it works
 
 ```
-$ capturecheck -q check data/raw/lobby_pivot
-
-lobby_pivot  (video, 64 frames)
-Score: 0.29  (likely unusable)   model: 2026-10-27_run01
-Problems:
-  • No walking     only 0% of frame pairs show real camera movement; the rest is
-                   rotation on the spot  (p=1.00)
-  • Poor coverage  camera never moved, so only one side was captured  (p=1.00)
-Time: 1 s (budget 60 s)
+your video or photos
+        ↓
+  pull out frames          2 per second for video, up to 600
+        ↓
+  measure each frame       sharpness, brightness, noise, texture
+        ↓
+  compare neighbours       overlap, and walked-or-turned
+        ↓
+  map the camera path      which sides did you actually film?
+        ↓
+  look at the pictures     an AI vision model: duplicates, variety, shiny surfaces
+        ↓
+  apply the rules          anything past its limit becomes a named problem
+        ↓
+  score it                 a small trained model turns it all into one number
+        ↓
+  a score from 0 to 1, a list of problems, and the evidence
 ```
 
-## Labelling workflow
-| Step | Command | Output |
-|---|---|---|
-| 1. Put captures in `data/raw/<capture_id>/` (a video, an `images/` folder, or a .zip) + optional `scene.txt` | n/a | n/a |
-| 2. Make broken copies (exact, free labels) | `python scripts/02_make_degraded_copies.py` | `data/degraded/` |
-| 3. Auto-label (only what is new; see below) | `capturecheck label data` | `data/labels/*.csv` |
-| 4. Review uncertain captures | `streamlit run capturecheck/review/app.py` | `human_labels.csv` |
-| 5. Train shiny-surface classifier (~200 labelled frames) | `python scripts/06_train_shiny_classifier.py` | `models/shiny_classifier.joblib` |
-| 6. Check label agreement | `python scripts/07_check_label_agreement.py` | `reports/label_agreement.md` |
-| 7. Check the broken copies really are broken | `python scripts/12_check_degradations.py` | printed table |
+Everything except the last step is plain measurement. **If the model is ever wrong, the measurements and the evidence are still trustworthy.** That split is deliberate.
 
-### Labels
-| Capture label | Meaning |
+| Score | Means |
 |---|---|
-| `motion_blur` | Too many blurry frames or photos |
-| `lighting` | Brightness changes or bad light |
-| `no_walking` | Camera only turned on the spot |
-| `poor_coverage` | Sides missing / too many repeated views |
-| `too_few_views` | Not enough different frames or photos |
-| `low_overlap` | Neighbouring photos share too little (gaps between shots) |
-| `mixed_cameras` | Photos from different cameras or sizes |
-| `reflective` | Many shiny or glass surfaces |
-| `low_texture` | Many plain surfaces |
-| `noisy` | Heavy sensor noise (high ISO or a very dark scene) |
-| `REVIEW` | System unsure, a person checks |
+| 0.75 and up | Likely good |
+| 0.55 – 0.75 | Fair |
+| 0.35 – 0.55 | Likely poor |
+| Below 0.35 | Likely unusable |
 
-A capture goes to `REVIEW` when a measurement sits within 15% of its threshold, or when two checks disagree — for example varied-looking views next to a camera path that recovered no motion.
+---
 
-### Adding one capture
+## Where this project actually stands
 
-Drop it into `data/raw/<capture_id>/` and run `capturecheck label data` again. Only the
-new capture is measured; the rows already on disk are carried over untouched, and rows for
-captures that have gone are dropped:
+Being straight about this is more useful than a flattering summary.
+
+**What works well:** the measurements and the evidence. Spotting blurry captures, finding the gap where you moved too fast, telling a walk from a pivot. That half is solid and useful today.
+
+**What does not yet:** the score. No capture in the dataset has been through real 3D reconstruction, so the model has never seen a true quality number. It learned from footage deliberately damaged in known ways instead. On the held-out test rooms it scores 0.46 where a simple statistical method scores 0.66 — the project's own evaluation report says *"the trained model is not yet earning its place."*
+
+So: **trust the problem list, treat the score as a rough direction.**
+
+The fix is known, not mysterious. Run some captures through 3D reconstruction for real, measure how they turned out, and record it in `data/labels/quality_targets.csv`. That is the one thing that would change what the score means.
+
+---
+
+## What is in here
 
 ```
-$ capturecheck label data
-measured: 1 new · kept: 51 · removed: 0
+capturecheck/   the code
+frontend/       the web page
+configs/        every threshold and setting, in plain YAML
+data/           your captures and labels (not in git)
+models/         trained models (not in git)
+tests/          316 tests, all run offline
 ```
 
-So adding one capture costs one capture, not the whole folder.
+Common commands:
 
-Rows measured under two different rule sets must never share the training table, so
-`data/labels/label_run.json` records a digest of every setting the measurements depend on —
-the whole labelling config plus whether DINOv2 ran. Move a threshold, change the sampling
-rate or pass `--no-dino`, and the digest no longer matches: the folder is remeasured in full
-and the reason is printed.
-
-| Flag | Effect |
+| | |
 |---|---|
-| *(none)* | Measure what is new, keep what is unchanged, drop what has gone |
-| `--from-scratch` | Remeasure everything, replacing all existing rows |
-| `--new-only` | Stop with an error rather than remeasure everything |
-| `--no-cache` | Ignore the cached DINOv2 features (use after replacing a file under the same capture id) |
+| `capturecheck check <path>` | Check one capture |
+| `capturecheck serve` | Start the web interface |
+| `capturecheck label data` | Measure everything in `data/` |
+| `capturecheck degrade` | Make deliberately broken copies, for training |
+| `capturecheck train` | Train the scoring model |
+| `capturecheck evaluate` | Test it and write the report |
+| `make lint && make test` | Before committing |
 
-Use `--new-only` in a script, where silently spending an hour remeasuring would be worse
-than failing.
+---
 
-## Training
-```bash
-python scripts/08_make_splits.py      # split by scene; company captures → test only
-capturecheck train                    # stage A: spot damage; stage B: learn ranking/score
-```
+## Going deeper
 
-Two stages, because there will never be many captures with a real PSNR number:
+- **[REFERENCE.md](REFERENCE.md)** — how each check works, how the model is trained, all the numbers and all the limits
+- **[data/README.md](data/README.md)** — how to organise captures, and the recording rules
+- **[frontend/README.md](frontend/README.md)** — how the web page is built
+- **[CLAUDE.md](CLAUDE.md)** — the project rules that must not be broken
 
-- **Stage A (pretext).** Damaged copies of the clean captures are generated at the *feature* level — lower the sharpness numbers, drop a coverage sector, remove tokens — by the thousand, and the model is asked what was done and how strongly. No PSNR and no human labels needed.
-- **Stage B (score).** The score head is trained by **ranking**, not regression, because PSNR values from different scenes are not comparable: a textured room scores higher than a white wall however well either was filmed. Pairs are only formed where the true order is known — the same scene clean versus broken, a lighter versus a heavier copy, or two captures with real PSNR values.
+## Licence
 
-Five seeds are trained and kept as an ensemble; each validates on a different held-out scene, which is leave-one-scene-out across the ensemble. Saved runs go to `models/<run_id>/` (weights, ONNX, thresholds, feature statistics, metrics, splits, training log).
+Apache 2.0. Built on DINOv2 (Meta AI), OpenCV, PyTorch, scikit-learn and React — all permissively licensed.
 
-Stage A needs clean captures to damage, so a dataset in which every capture is marked degraded leaves it with nothing to do. The run's `metrics.json` records whether it **ran**, not just whether it was asked for, and the training log's `stage` column shows both stages — worth checking, because a silently skipped stage A looks exactly like a fast training run.
-
-On a laptop CPU the default settings — five seeds, 30 pretext epochs of 2000 generated variants each — take roughly 20 minutes, most of it stage A. Still less than one 3DGS run, and it is a one-off. For a quick check that the wiring works:
-
-```bash
-capturecheck train --seed 0 --no-stage-a    # one seed, score stage only: under a minute
-```
-
-Lower `stage_a.epochs` or `seed` in `configs/train.yaml` for anything in between.
-
-## Evaluation and results
-```bash
-capturecheck evaluate
-```
-
-Writes `reports/evaluation_report.md` with Spearman correlation (and a bootstrap 95% interval) for the model and every baseline — frame count, mean blur, COLMAP match count, LightGBM on the same features — plus precision and recall per problem, a predicted-vs-target scatter plot, and runtime.
-
-The report calls it out when a baseline ranks the test captures as well as the model does. Read the confidence interval, not the point estimate: a test set of a few dozen captures cannot separate methods whose intervals overlap.
-
-### Results on the synthetic demo set
-
-> **These numbers say nothing about real reconstruction quality.** The demo set's `psnr` column is a geometric stand-in, only 2 of the 17 test captures carry one at all, and a test set that size cannot separate methods whose intervals overlap. They are here to show the pipeline runs end to end and reports honestly. Replace `data/labels/quality_targets.csv` with PSNR from real 3DGS runs before quoting a result of your own.
-
-Run `2026-10-27_run01`, 17 unseen test captures across 2 held-out scenes (one of them the test-only "company" scene): 1 video and 16 image bundles. With fewer than 3 PSNR targets available, `capturecheck evaluate` falls back to ranking against damage severity (clean > light > medium > heavy) and says so in the report:
-
-| Method | Spearman vs target (95% CI) |
-|---|---|
-| Mean blur | −0.08 (−0.58 – 0.43) |
-| Frame count | 0.31 (−0.19 – 0.73) |
-| ORB match count (COLMAP stand-in) | 0.59 (0.14 – 0.91) |
-| **CaptureCheck** | **0.69 (0.24 – 0.94)** |
-| LightGBM on the same features | 0.75 (0.40 – 0.94) |
-
-**LightGBM on the same features beats the model here**, 0.75 to 0.69. The intervals overlap almost entirely, so on 17 captures the honest reading is "indistinguishable" rather than "worse" — but the model is not earning its place on this set, and `reports/evaluation_report.md` prints that as a note rather than burying it. Both clearly beat frame count and mean blur. The target of ≥ 0.70 was not reached; what that costs is unknown until the targets are real PSNR values rather than a stand-in.
-
-Only one test capture is a video, too few for a separate per-format correlation, so that column of the report is blank.
-
-What *is* clearly working is the diagnosis:
-
-| Problem label | Precision | Recall | Positives in test |
-|---|---|---|---|
-| `lighting` | 1.00 | 1.00 | 3 |
-| `low_overlap` | 1.00 | 1.00 | 6 |
-| `low_texture` | 1.00 | 1.00 | 1 |
-| `noisy` | 1.00 | 1.00 | 3 |
-| `poor_coverage` | 1.00 | 1.00 | 16 |
-| `motion_blur` | 1.00 | 0.67 | 3 |
-| `too_few_views` | 0.27 | 1.00 | 3 |
-
-`too_few_views` over-fires badly: it catches every positive but flags 11 captures where 3 are labelled. The head thresholds have not been tuned — deliberately, since tuning them on the test set is what rule 3 forbids.
-
-`mixed_cameras` and `reflective` have no positives in this test set: the demo captures all come from one synthetic camera, and no shiny classifier has been trained. Those two columns are untested, not passing. `no_walking` has no positives either, because neither held-out scene contains a pivot capture, and the model flagged one capture anyway — a precision of 0.00 on a single prediction, which says nothing either way.
-
-A second caveat applies to all of them: these are measured against the **rules'** labels, not against human judgement. The thresholds in `configs/labeling.yaml` have not been calibrated against a real review yet, so a high precision here says the model reproduces the rules, not that the rules are right. [`reports/label_agreement.md`](reports/label_agreement.md) explains how to close that gap.
-
-Validation ranking accuracy across the five leave-one-scene-out folds: 0.77 on average, but the folds run 0.40 (holding out `lobby`) to 0.90 (holding out `kitchen`). One fold below chance is what a demo set of this size looks like; it is also the number to watch when the set grows, and it is stable across reruns — `lobby` is the pivot scene, and holding it out leaves no example of a capture that turned instead of walking.
-
-These figures are reproducible end to end: `make demo` renders the same pixels, `make degrade` cuts the same copies, and training the same data twice produced a byte-identical `model.pt` and the same validation accuracy to every digit. The ONNX export carries the whole five-member ensemble, so `capturecheck check` and the PyTorch model agree to within 1e-7 and rank captures identically.
-
-Runtime on a laptop CPU (Apple Silicon, 960-px measurement width):
-
-| Capture | Measure | Score | Total |
-|---|---|---|---|
-| 600 photos | 19.1 s | 0.8 ms | **19.1 s** |
-| 5-minute 1080p video (600 frames at 2 fps) | 14.6 s | 0.8 ms | **14.6 s** |
-
-Both are well inside the 60-second budget. The per-frame cost is guarded by `tests/test_budget.py`.
-
-## Dataset and collection protocol
-- **Sources:** company captures (test only), your own videos and photo bundles, and broken copies of good captures.
-- **Recording rules:** walk around the subject rather than turning on the spot; keep neighbouring frames overlapping; lock the exposure if the camera allows it; cover every side at the height you care about.
-- **Labels:** automatic (file info, EXIF, OpenCV, DINOv2), exact (broken copies), human (review screen, two reviewers on a shared subset).
-- **Quality targets:** PSNR on held-out *clean* frames, where available.
-- **Splits:** by `scene_id`, never by capture; see `data/splits/`.
-- Full dataset card: [`data/README.md`](data/README.md).
-
-## Project structure
-```
-capturecheck/
-├── configs/        # all thresholds and settings
-├── capturecheck/   # package: io (video + images), checks, features, labeling, degrade, review, model
-├── scripts/        # numbered pipeline steps 00–12
-├── data/           # videos, photo bundles, frames, features, labels, splits (not in git)
-├── models/         # saved runs (not in git)
-├── reports/        # label agreement + evaluation reports
-├── notebooks/      # threshold exploration
-└── tests/
-```
-
-## Configuration
-Every threshold lives in `configs/`, and no module hard-codes one:
-
-- `configs/labeling.yaml`: sampling (2 fps, max 600, photo order) and label thresholds
-- `configs/degrade.yaml`: broken-copy strengths
-- `configs/train.yaml`: model and training settings
-- `configs/default.yaml`: paths and the 60-second budget
-
-The defaults are a starting point, not a calibration. Run the review screen on a few dozen of your own captures and `scripts/07_check_label_agreement.py` will tell you which thresholds to move and in which direction.
-
-## Limitations
-- **The camera path is approximate.** Relative poses are chained with an unknown, drifting scale; it is enough to answer "did the camera ever get to the other side?" and not much more. Coverage is therefore judged on the *azimuth span* of the path, which survives that drift; the 8×3 bin grid is reported and used to name which directions are missing, but counting empty bins turned out to track how the path drifted rather than how much was filmed, so it is not what the label turns on. When too few pairs give a pose, coverage is reported as unreliable rather than guessed.
-- **A pan across a flat scene reads as `turned`.** A homography explains a planar scene exactly, so filming a wall while walking past it looks the same as pivoting. For 3DGS the consequence is similar — little usable parallax — but the label names the wrong cause.
-- **Thresholds depend on camera and resolution.** Sharpness in particular is only comparable between frames measured at the same width; captures narrower than `resize_width` are measured at their own width, recorded as `measured_width`.
-- **Photo bundles with neither EXIF time nor numbered names** are paired by visual similarity, which is less reliable than true capture order.
-- **Shiny/glass detection** depends on a small hand-labelled classifier; with none trained, `reflective` is never flagged rather than guessed.
-- **Predictions are validated only on the captures in the evaluation report.** The model has no way to know about a failure mode it has never seen. On the synthetic demo set in particular, `mixed_cameras` and `reflective` have no positive examples at all, so nothing about them has been tested.
-- **The thresholds have not been calibrated against human judgement.** They are the build guide's starting values, sanity-checked against synthetic captures whose ground truth is known. `noise.frame_max` in particular sits above anything the synthetic set produces. Run the review screen and `scripts/07_check_label_agreement.py` on real captures before trusting a label's precision.
-
-## Contributing
-`make lint && make test` must pass (tests cover videos and image bundles, and run offline). Keep thresholds in `configs/` and label names in `capturecheck/labeling/schema.py`. See [`CLAUDE.md`](CLAUDE.md) for the rules that must not be broken.
-
-## Licence and acknowledgements
-Apache 2.0. Uses DINOv2 (Meta AI, Apache 2.0), OpenCV, Pillow, PyTorch, scikit-learn, LightGBM, ONNX Runtime, Typer and Streamlit. The walked-versus-turned decision follows the model-selection approach used by ORB-SLAM's initialiser.
+Built for the Rysera Innovations TransitionX 2026 problem statement, *"Predicting reconstruction quality before you train"*.
