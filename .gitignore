@@ -2,7 +2,9 @@
 data/*
 !data/README.md
 
-docs/
+# Keep human-maintained project documentation in version control.
+!docs/
+!docs/*.md
 models/
 reports/figures/*.png
 *.npz
