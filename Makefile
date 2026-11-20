@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: setup demo label review train eval export test test-all lint format degrade splits features check-degradations clean
+.PHONY: setup demo label review serve ui ui-dev train eval export test test-all lint format degrade splits features check-degradations clean
 
 setup:
 	$(PIP) install -e ".[dev]"
@@ -26,6 +26,19 @@ check-degradations:
 
 review:
 	.venv/bin/streamlit run capturecheck/review/app.py
+
+# The web interface. `make ui` builds the React app once; `make serve` then
+# serves it alongside the API on one port. For front-end work use `make ui-dev`
+# in a second terminal: it reloads on save and proxies /api to `make serve`.
+ui:
+	npm --prefix frontend install
+	npm --prefix frontend run build
+
+ui-dev:
+	npm --prefix frontend run dev
+
+serve:
+	$(PY) -m capturecheck.cli serve
 
 train:
 	$(PY) -m capturecheck.cli train

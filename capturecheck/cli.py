@@ -17,6 +17,7 @@ from rich.table import Table
 from capturecheck import __version__
 from capturecheck.config import get_config
 from capturecheck.labeling import schema
+from capturecheck.presentation import json_safe, quality_band
 from capturecheck.utils.logging import get_logger, setup_logging
 
 app = typer.Typer(
@@ -26,47 +27,6 @@ app = typer.Typer(
 )
 console = Console()
 log = get_logger(__name__)
-
-QUALITY_BANDS: tuple[tuple[float, str], ...] = (
-    (0.75, "likely good"),
-    (0.55, "fair"),
-    (0.35, "likely poor"),
-    (0.0, "likely unusable"),
-)
-
-
-def quality_band(score: float) -> str:
-    """Turn a 0-1 score into words. The cut-offs are calibrated in evaluation."""
-    for cutoff, name in QUALITY_BANDS:
-        if score >= cutoff:
-            return name
-    return "unknown"
-
-
-def json_safe(value):
-    """Make a value strictly JSON-serialisable.
-
-    A missing measurement is NaN, and ``json.dumps`` writes that as a bare
-    ``NaN``, which Python reads back but ``jq`` and most other parsers refuse.
-    ``--json`` is there to be piped into something, so missing values become
-    ``null``.
-    """
-    import math
-
-    if isinstance(value, dict):
-        return {k: json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_safe(v) for v in value]
-    if isinstance(value, (bool, str, type(None))):
-        return value
-    if isinstance(value, (int,)):
-        return int(value)
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    return None if (math.isnan(number) or math.isinf(number)) else number
-
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -200,6 +160,46 @@ def check(
     colour = "green" if total <= budget else "red"
     console.print(f"Time: [{colour}]{total:.0f} s[/{colour}] (budget {budget:.0f} s)")
     console.print()
+
+
+# --------------------------------------------------------------------------- #
+# serve: the web front end
+# --------------------------------------------------------------------------- #
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address."),
+    port: int = typer.Option(8000, "--port", help="Port to listen on."),
+    run: Path | None = typer.Option(None, "--run", help="Model run to score with."),
+    no_dino: bool = typer.Option(False, "--no-dino", help="Skip DINOv2 (faster, less accurate)."),
+    reload: bool = typer.Option(False, "--reload", help="Restart on code changes."),
+) -> None:
+    """Serve the web interface: upload a capture in a browser and see its score."""
+    try:
+        import uvicorn
+    except ModuleNotFoundError as exc:  # the extra was not installed
+        console.print("[red]The web interface needs the `api` extra.[/red]")
+        console.print('Install it with: [bold]pip install -e ".[api]"[/bold]')
+        raise typer.Exit(code=1) from exc
+
+    from capturecheck.api import create_app
+
+    front_end = Path(__file__).resolve().parents[1] / "frontend" / "dist" / "index.html"
+    console.print(f"CaptureCheck on [bold]http://{host}:{port}[/bold]")
+    if not front_end.is_file():
+        console.print(
+            "[yellow]No built front end.[/yellow] Build it with "
+            "[bold]npm --prefix frontend run build[/bold], or run "
+            "[bold]npm --prefix frontend run dev[/bold] in another terminal."
+        )
+    console.print(f"[dim]API docs at http://{host}:{port}/docs[/dim]")
+
+    uvicorn.run(
+        create_app(run_dir=run, use_dino=not no_dino),
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info",
+    )
 
 
 # --------------------------------------------------------------------------- #

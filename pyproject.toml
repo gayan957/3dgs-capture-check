@@ -44,6 +44,12 @@ model = [
   "onnxscript>=0.1",
 ]
 review = ["streamlit>=1.33"]
+# The web interface: `capturecheck serve` plus the React front end in frontend/.
+api = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-multipart>=0.0.9",
+]
 dev = [
   "pytest>=8.0",
   "ruff>=0.4",
@@ -52,6 +58,9 @@ dev = [
   "onnxruntime>=1.17",
   "onnxscript>=0.1",
   "streamlit>=1.33",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-multipart>=0.0.9",
 ]
 
 [project.scripts]

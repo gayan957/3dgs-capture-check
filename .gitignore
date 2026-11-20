@@ -10,6 +10,11 @@ reports/figures/*.png
 *.pt
 *.onnx
 
+# The front end: dependencies and the build are both reproducible from source.
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
 # Python
 __pycache__/
 *.py[cod]
